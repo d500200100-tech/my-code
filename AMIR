@@ -1,0 +1,297 @@
+-- VOID VIP v10.6 (🚀 COMPACT MOBILE STYLE - FULLBRIGHT UPDATE)
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = game:GetService("CoreGui")
+ScreenGui.ResetOnSpawn = false
+
+-- Глобальные настройки (Сразу на максимум!)
+local Config = { 
+    AimBot = false, Silent = false, ESP = false, Tracers = false, Chams = false,
+    Hitbox = false, TeamCheck = true, FullBright = false, FOV = 150, Distance = 10000, AimPart = "Head", HitboxSize = 5
+}
+
+local Camera = workspace.CurrentCamera
+local LocalPlayer = game.Players.LocalPlayer
+local CurrentTarget = nil
+local Lighting = game:GetService("Lighting")
+
+-- Сохраняем стандартные настройки неба игры, чтобы возвращать их при выключении
+local DefaultTime = Lighting.TimeOfDay
+local DefaultBrightness = Lighting.Brightness
+local DefaultAmbient = Lighting.Ambient
+
+-- Фиолетовый круг FOV
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(130, 60, 255)
+FOVCircle.Thickness = 1.5
+FOVCircle.Filled = false
+FOVCircle.Transparency = 0.9
+FOVCircle.Visible = false
+
+-- Вертикальная компактная панель меню
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0, 150, 0, 390) -- Высота увеличена до 390 под новую кнопку
+Main.Position = UDim2.new(0.05, 0, 0.15, 0)
+Main.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
+Main.Active = true
+Main.Draggable = true
+Main.Parent = ScreenGui
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
+
+local MainStroke = Instance.new("UIStroke", Main)
+MainStroke.Thickness = 2
+MainStroke.Color = Color3.fromRGB(130, 60, 255)
+
+-- Название меню
+local Title = Instance.new("TextLabel", Main)
+Title.Size = UDim2.new(0.75, 0, 0, 35)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.Text = "VOID VIP v10.6"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 12
+Title.Font = Enum.Font.RobotoMono
+Title.BackgroundTransparency = 1
+Title.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Крестик скрытия/закрытия окна
+local CloseBtn = Instance.new("TextButton", Main)
+CloseBtn.Size = UDim2.new(0, 22, 0, 22)
+CloseBtn.Position = UDim2.new(1, -28, 0, 6)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(130, 60, 255)
+CloseBtn.Text = "×"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextSize = 14
+CloseBtn.Font = Enum.Font.SourceSansBold
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 5)
+
+-- Маленькая кнопка открытия на экране
+local OpenBtn = Instance.new("TextButton")
+OpenBtn.Size = UDim2.new(0, 80, 0, 28)
+OpenBtn.Position = UDim2.new(0.02, 0, 0.15, 0) 
+OpenBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
+OpenBtn.Text = "Open Menu"
+OpenBtn.TextColor3 = Color3.fromRGB(130, 60, 255)
+OpenBtn.TextSize = 11
+OpenBtn.Font = Enum.Font.RobotoMono
+OpenBtn.Visible = false
+OpenBtn.Active = true
+OpenBtn.Draggable = true 
+OpenBtn.Parent = ScreenGui
+Instance.new("UICorner", OpenBtn).CornerRadius = UDim.new(0, 6)
+local OpenStroke = Instance.new("UIStroke", OpenBtn)
+OpenStroke.Color = Color3.fromRGB(130, 60, 255)
+OpenStroke.Thickness = 1.5
+
+CloseBtn.MouseButton1Click:Connect(function() Main.Visible = false OpenBtn.Visible = true end)
+OpenBtn.MouseButton1Click:Connect(function() Main.Visible = true OpenBtn.Visible = false end)
+
+-- Быстрая функция создания кликабельных кнопок-тумблеров
+local function CreateButton(ConfigKey, OnText, OffText, posY)
+    local btn = Instance.new("TextButton", Main)
+    btn.Size = UDim2.new(0.88, 0, 0, 26)
+    btn.Position = UDim2.new(0.06, 0, 0, posY)
+    btn.Font = Enum.Font.SourceSansSemibold
+    btn.TextSize = 11
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    local stroke = Instance.new("UIStroke", btn)
+    stroke.Color = Color3.fromRGB(40, 40, 50)
+
+    local function updateVisual()
+        btn.Text = Config[ConfigKey] and OnText or OffText
+        btn.BackgroundColor3 = Config[ConfigKey] and Color3.fromRGB(40, 20, 70) or Color3.fromRGB(25, 25, 30)
+        btn.TextColor3 = Config[ConfigKey] and Color3.fromRGB(200, 150, 255) or Color3.fromRGB(170, 170, 180)
+    end
+
+    btn.MouseButton1Click:Connect(function()
+        Config[ConfigKey] = not Config[ConfigKey]
+        updateVisual()
+    end)
+    updateVisual()
+    return btn
+end
+
+-- Наш вертикальный ряд кнопок
+CreateButton("AimBot", "⚡ AimBot: ON", "⚡ AimBot: OFF", 40)
+CreateButton("Silent", "🎯 Silent: ON", "🎯 Silent: OFF", 70)
+CreateButton("TeamCheck", "🛡️ TeamCheck: ON", "🛡️ TeamCheck: OFF", 100)
+CreateButton("Hitbox", "🧱 Hitbox: ON", "🧱 Hitbox: OFF", 130)
+CreateButton("ESP", "👁️ Box ESP: ON", "👁️ Box ESP: OFF", 160)
+CreateButton("Tracers", "✏️ Tracers: ON", "✏️ Tracers: OFF", 190)
+CreateButton("Chams", "🔮 Chams: ON", "🔮 Chams: OFF", 220)
+CreateButton("FullBright", "☀️☀️ Day Mode: ON", "☀️☀️ Day Mode: OFF", 250) -- Новая кнопка
+
+-- Кнопка смены кости (Голова/Тело)
+local TargetBtn = Instance.new("TextButton", Main)
+TargetBtn.Size = UDim2.new(0.88, 0, 0, 26)
+TargetBtn.Position = UDim2.new(0.06, 0, 0, 280)
+TargetBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+TargetBtn.Text = "Bone: Head"
+TargetBtn.TextColor3 = Color3.fromRGB(170, 170, 180)
+TargetBtn.Font = Enum.Font.SourceSansSemibold
+TargetBtn.TextSize = 11
+Instance.new("UICorner", TargetBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UIStroke", TargetBtn).Color = Color3.fromRGB(40, 40, 50)
+TargetBtn.MouseButton1Click:Connect(function()
+    Config.AimPart = (Config.AimPart == "Head") and "HumanoidRootPart" or "Head"
+    TargetBtn.Text = "Bone: " .. (Config.AimPart == "Head" and "Head" or "Torso")
+end)
+
+-- Инфо-панель
+local InfoLabel = Instance.new("TextLabel", Main)
+InfoLabel.Size = UDim2.new(0.88, 0, 0, 40)
+InfoLabel.Position = UDim2.new(0.06, 0, 0, 315)
+InfoLabel.BackgroundTransparency = 1
+InfoLabel.TextColor3 = Color3.fromRGB(130, 130, 140)
+InfoLabel.TextSize = 10
+InfoLabel.Font = Enum.Font.RobotoMono
+InfoLabel.TextXAlignment = Enum.TextXAlignment.Left
+InfoLabel.Text = string.format("Fov: %dpx\nDist: %dm\nHitbox: %0.1fs", Config.FOV, Config.Distance, Config.HitboxSize)
+
+-- Логика валидации целей
+local function IsValid(p)
+    if p and p ~= LocalPlayer and p.Character and p.Character:FindFirstChild(Config.AimPart) and p.Character:FindFirstChild("Humanoid") then
+        if p.Character.Humanoid.Health > 0 and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            if Config.TeamCheck and p.Team == LocalPlayer.Team and LocalPlayer.Team ~= nil then return false end
+            local dist = (p.Character[Config.AimPart].Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+            if dist <= Config.Distance then return true end
+        end
+    end
+    return false
+end
+
+-- Алгоритм Aim Lock
+local function GetClosest()
+    if CurrentTarget and IsValid(CurrentTarget) then
+        local pos, onScreen = Camera:WorldToViewportPoint(CurrentTarget.Character[Config.AimPart].Position)
+        local mag = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+        if onScreen and mag <= Config.FOV then return CurrentTarget end
+    end
+    local closest, shortestDist = nil, math.huge
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    for _, p in pairs(game.Players:GetPlayers()) do
+        if IsValid(p) then
+            local pos, onScreen = Camera:WorldToViewportPoint(p.Character[Config.AimPart].Position)
+            if onScreen then
+                local mag = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                if mag <= Config.FOV and mag < shortestDist then shortestDist = mag; closest = p end
+            end
+        end
+    end
+    CurrentTarget = closest; return closest
+end
+
+-- Мобильный клик под Silent Aim
+game:GetService("UserInputService").InputBegan:Connect(function(input, processed)
+    if Config.Silent and not processed then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            local target = GetClosest()
+            if target and target.Character and target.Character:FindFirstChild(Config.AimPart) then
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Character[Config.AimPart].Position)
+            end
+        end
+    end
+end)
+
+-- Безупречный главный цикл обновлений
+game:GetService("RunService").RenderStepped:Connect(function()
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOVCircle.Radius = Config.FOV
+    FOVCircle.Visible = (Config.AimBot or Config.Silent)
+
+    -- Работа функции вечного света (FullBright)
+    if Config.FullBright then
+        Lighting.TimeOfDay = "14:00:00"
+        Lighting.Brightness = 3
+        Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+    end
+
+    if Config.AimBot then
+        local target = GetClosest()
+        if target and target.Character and target.Character:FindFirstChild(Config.AimPart) then
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Character[Config.AimPart].Position)
+        end
+    else
+        if not Config.Silent then CurrentTarget = nil end
+    end
+
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    for _, p in pairs(game.Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            local head = p.Character:FindFirstChild("Head")
+            local hum = p.Character:FindFirstChild("Humanoid")
+
+            if hrp and head and hum and hum.Health > 0 and myHrp then
+                local dist = (hrp.Position - myHrp.Position).Magnitude
+                local isTeammate = Config.TeamCheck and p.Team == LocalPlayer.Team and LocalPlayer.Team ~= nil
+
+                -- Модификация Хитбоксов
+                if Config.Hitbox and not isTeammate then
+                    head.Size = Vector3.new(Config.HitboxSize, Config.HitboxSize, Config.HitboxSize)
+                    head.CanCollide = false
+head.Transparency = 0.5
+else
+head.Size = Vector3.new(1.2, 1.2, 1.2)
+head.Transparency = 0
+end
+-- ESP элементы
+if dist <= Config.Distance and not isTeammate then
+local bbg = hrp:FindFirstChild("MobileESP")
+local box = hrp:FindFirstChild("3D_ESP_Box")
+if Config.ESP then
+if not bbg then
+bbg = Instance.new("BillboardGui", hrp); bbg.Name = "MobileESP"; bbg.Size = UDim2.new(0, 140, 0, 22); bbg.AlwaysOnTop = true; bbg.StudsOffset = Vector3.new(0, 3.5, 0)
+local tl = Instance.new("TextLabel", bbg); tl.Size = UDim2.new(1,0,1,0); tl.BackgroundTransparency = 1; tl.TextColor3 = Color3.fromRGB(160, 90, 255); tl.TextSize = 11; tl.Font = Enum.Font.SourceSansBold
+end
+bbg.Enabled = true
+bbg.TextLabel.Text = p.Name .. " [" .. math.floor(dist) .. "m]"
+if not box then
+box = Instance.new("BoxHandleAdornment", hrp); box.Name = "3D_ESP_Box"; box.Size = Vector3.new(4.2, 5.8, 4.2); box.AlwaysOnTop = true; box.ZIndex = 5; box.Color3 = Color3.fromRGB(160, 90, 255); box.Transparency = 0.75; box.Adornee = hrp
+end
+box.Visible = true
+else
+if bbg then bbg.Enabled = false end
+if box then box.Visible = false end
+end
+-- Chams
+local highlight = p.Character:FindFirstChild("ChamsHighlight")
+if Config.Chams then
+if not highlight then
+highlight = Instance.new("Highlight", p.Character)
+highlight.Name = "ChamsHighlight"
+highlight.FillColor = Color3.fromRGB(120, 50, 255)
+highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+highlight.FillTransparency = 0.5
+highlight.OutlineTransparency = 0.2
+highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+end
+highlight.Enabled = true
+else
+if highlight then highlight.Enabled = false end
+end
+-- Tracers (Линии)
+local tracer = hrp:FindFirstChild("TracerLine")
+if Config.Tracers then
+if not tracer then
+tracer = Instance.new("BoxHandleAdornment", hrp)
+tracer.Name = "TracerLine"
+tracer.Size = Vector3.new(0.1, 0.1, dist)
+tracer.AlwaysOnTop = true
+tracer.Color3 = Color3.fromRGB(130, 60, 255)
+tracer.Transparency = 0.6
+tracer.Adornee = hrp
+end
+tracer.Size = Vector3.new(0.1, 0.1, dist)
+tracer.CFrame = CFrame.new(Vector3.new(0,0, -dist/2))
+else
+if tracer then tracer:Destroy() end
+end
+else
+if hrp:FindFirstChild("MobileESP") then hrp.MobileESP.Enabled = false end
+if hrp:FindFirstChild("3D_ESP_Box") then hrp["3D_ESP_Box"].Visible = false end
+if p.Character:FindFirstChild("ChamsHighlight") then p.Character.ChamsHighlight.Enabled = false end
+if hrp:FindFirstChild("TracerLine") then hrp.TracerLine:Destroy() end
+end
+end
+end
+end
+end)
