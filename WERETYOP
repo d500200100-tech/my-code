@@ -1,0 +1,477 @@
+-- VOID HUB PREMIUM v15.1 (👑 ULTIMATE BUGFIX & SURVIVAL FIX FOR RASPAD)
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = game:GetService("CoreGui")
+ScreenGui.ResetOnSpawn = false
+
+-- Глобальные настройки
+local Config = { 
+    AimBot = false, Silent = false, ESP = false, Tracers = false,
+    Hitbox = false, FullBright = false, InfStamina = true, NoHunger = true,
+    FOV = 150, Distance = 10000, AimPart = "Head", AimSmoothing = 0.12
+}
+
+local Camera = workspace.CurrentCamera
+local LocalPlayer = game.Players.LocalPlayer
+local Lighting = game:GetService("Lighting")
+local DefaultTime = Lighting.TimeOfDay
+
+-- Фиолетовый круг FOV через Drawing
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(150, 70, 255)
+FOVCircle.Thickness = 1.5
+FOVCircle.Filled = false
+FOVCircle.Transparency = 0.7
+FOVCircle.Visible = false
+
+-- ГЛАВНЫЙ ИНТЕРФЕЙС
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 420, 0, 260)
+MainFrame.Position = UDim2.new(0.5, -210, 0.5, -130)
+MainFrame.BackgroundColor3 = Color3.fromRGB(11, 9, 16)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner", MainFrame)
+MainCorner.CornerRadius = UDim.new(0, 16)
+
+local MainStroke = Instance.new("UIStroke", MainFrame)
+MainStroke.Thickness = 2
+MainStroke.Color = Color3.fromRGB(150, 70, 255)
+
+-- Плавающая кнопка "V"
+local OpenBtn = Instance.new("TextButton")
+OpenBtn.Size = UDim2.new(0, 50, 0, 50)
+OpenBtn.Position = UDim2.new(0.05, 0, 0.15, 0)
+OpenBtn.BackgroundColor3 = Color3.fromRGB(15, 12, 22)
+OpenBtn.Text = "V"
+OpenBtn.TextColor3 = Color3.fromRGB(150, 70, 255)
+OpenBtn.Font = Enum.Font.SourceSansBold
+OpenBtn.TextSize = 22
+OpenBtn.Visible = false
+OpenBtn.Active = true
+OpenBtn.Draggable = true
+OpenBtn.Parent = ScreenGui
+Instance.new("UICorner", OpenBtn).CornerRadius = UDim.new(1, 0)
+local OpenStroke = Instance.new("UIStroke", OpenBtn)
+OpenStroke.Thickness = 2
+OpenStroke.Color = Color3.fromRGB(150, 70, 255)
+
+-- Сайдбар вкладок
+local Sidebar = Instance.new("Frame", MainFrame)
+Sidebar.Size = UDim2.new(0, 110, 1, 0)
+Sidebar.BackgroundColor3 = Color3.fromRGB(7, 5, 10)
+Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 16)
+
+local SideCover = Instance.new("Frame", Sidebar)
+SideCover.Size = UDim2.new(0, 10, 1, 0)
+SideCover.Position = UDim2.new(1, -10, 0, 0)
+SideCover.BackgroundColor3 = Color3.fromRGB(7, 5, 10)
+SideCover.BorderSizePixel = 0
+
+local Logo = Instance.new("TextLabel", Sidebar)
+Logo.Size = UDim2.new(1, 0, 0, 40)
+Logo.Text = "VOID HUB v15.1"
+Logo.TextColor3 = Color3.fromRGB(180, 100, 255)
+Logo.Font = Enum.Font.SourceSansBold
+Logo.TextSize = 13
+Logo.BackgroundTransparency = 1
+
+local ContentFrame = Instance.new("Frame", MainFrame)
+ContentFrame.Size = UDim2.new(1, -125, 1, -45)
+ContentFrame.Position = UDim2.new(0, 120, 0, 40)
+ContentFrame.BackgroundTransparency = 1
+
+local TopBar = Instance.new("Frame", MainFrame)
+TopBar.Size = UDim2.new(1, -110, 0, 35)
+TopBar.Position = UDim2.new(0, 110, 0, 0)
+TopBar.BackgroundTransparency = 1
+
+local TitleLabel = Instance.new("TextLabel", TopBar)
+TitleLabel.Size = UDim2.new(0.6, 0, 1, 0)
+TitleLabel.Position = UDim2.new(0, 10, 0, 0)
+TitleLabel.Text = "Combat Selection"
+TitleLabel.TextColor3 = Color3.fromRGB(200, 190, 220)
+TitleLabel.Font = Enum.Font.SourceSansBold
+TitleLabel.TextSize = 14
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.BackgroundTransparency = 1
+
+local MinimizeBtn = Instance.new("TextButton", TopBar)
+MinimizeBtn.Size = UDim2.new(0, 24, 0, 24)
+MinimizeBtn.Position = UDim2.new(1, -30, 0, 6)
+MinimizeBtn.BackgroundColor3 = Color3.fromRGB(22, 16, 30)
+MinimizeBtn.Text = "✕"
+MinimizeBtn.TextColor3 = Color3.fromRGB(150, 70, 255)
+MinimizeBtn.Font = Enum.Font.SourceSansBold
+MinimizeBtn.TextSize = 12
+Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 6)
+MinimizeBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false OpenBtn.Visible = true end)
+OpenBtn.MouseButton1Click:Connect(function() MainFrame.Visible = true OpenBtn.Visible = false end)
+
+-- Страницы меню
+local Pages = {}
+local function CreatePage(Name)
+    local SF = Instance.new("ScrollingFrame", ContentFrame)
+    SF.Size = UDim2.new(1, 0, 1, 0)
+    SF.BackgroundTransparency = 1
+    SF.ScrollBarThickness = 3
+    SF.ScrollBarImageColor3 = Color3.fromRGB(150, 70, 255)
+    SF.CanvasSize = UDim2.new(0, 0, 0, 320)
+    SF.Visible = (Name == "Combat")
+    Pages[Name] = SF
+end
+CreatePage("Combat")
+CreatePage("Visuals")
+CreatePage("Survival")
+CreatePage("Settings")
+
+-- Навигация в сайдбаре
+local ActiveTab = "Combat"
+local function CreateTabBtn(Name, DisplayName, PosY)
+    local Btn = Instance.new("TextButton", Sidebar)
+    Btn.Size = UDim2.new(0.88, 0, 0, 28)
+    Btn.Position = UDim2.new(0.06, 0, 0, PosY)
+    Btn.BackgroundColor3 = (Name == ActiveTab) and Color3.fromRGB(38, 22, 60) or Color3.fromRGB(15, 12, 22)
+    Btn.Text = DisplayName
+    Btn.TextColor3 = (Name == ActiveTab) and Color3.fromRGB(220, 180, 255) or Color3.fromRGB(140, 130, 150)
+    Btn.Font = Enum.Font.SourceSansBold
+    Btn.TextSize = 12
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+
+    Btn.MouseButton1Click:Connect(function()
+        ActiveTab = Name
+        TitleLabel.Text = DisplayName .. " Selection"
+        for TName, TFrame in pairs(Pages) do TFrame.Visible = (TName == Name) end
+        for _, child in pairs(Sidebar:GetChildren()) do
+            if child:IsA("TextButton") then
+                local isCurrent = (child.Text == DisplayName)
+                child.BackgroundColor3 = isCurrent and Color3.fromRGB(38, 22, 60) or Color3.fromRGB(15, 12, 22)
+                child.TextColor3 = isCurrent and Color3.fromRGB(220, 180, 255) or Color3.fromRGB(140, 130, 150)
+            end
+        end
+    end)
+end
+CreateTabBtn("Combat", "⚔️ Combat", 45)
+CreateTabBtn("Visuals", "👁️ Visuals", 80)
+CreateTabBtn("Survival", "🌱 Survival", 115)
+CreateTabBtn("Settings", "⚙️ Settings", 150)
+
+-- Конструкторы элементов UI
+local function CreateToggle(Page, Text, ConfigKey, PosY)
+    local Frame = Instance.new("Frame", Pages[Page])
+    Frame.Size = UDim2.new(1, -5, 0, 32)
+    Frame.Position = UDim2.new(0, 0, 0, PosY)
+    Frame.BackgroundTransparency = 1
+
+    local Label = Instance.new("TextLabel", Frame)
+    Label.Size = UDim2.new(0.7, 0, 1, 0)
+    Label.Text = "  " .. Text
+    Label.TextColor3 = Color3.fromRGB(230, 225, 245)
+    Label.TextSize = 13
+    Label.Font = Enum.Font.SourceSans
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.BackgroundTransparency = 1
+
+    local Switch = Instance.new("TextButton", Frame)
+    Switch.Size = UDim2.new(0, 36, 0, 18)
+    Switch.Position = UDim2.new(1, -40, 0, 7)
+    Switch.BackgroundColor3 = Config[ConfigKey] and Color3.fromRGB(150, 70, 255) or Color3.fromRGB(30, 26, 38)
+    Switch.Text = ""
+    Instance.new("UICorner", Switch).CornerRadius = UDim.new(0, 9)
+
+    local Circle = Instance.new("Frame", Switch)
+    Circle.Size = UDim2.new(0, 14, 0, 14)
+    Circle.Position = Config[ConfigKey] and UDim2.new(0, 20, 0, 2) or UDim2.new(0, 2, 0, 2)
+    Circle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    Instance.new("UICorner", Circle).CornerRadius = UDim.new(0, 7)
+
+    Switch.MouseButton1Click:Connect(function()
+        Config[ConfigKey] = not Config[ConfigKey]
+        Switch.BackgroundColor3 = Config[ConfigKey] and Color3.fromRGB(150, 70, 255) or Color3.fromRGB(30, 26, 38)
+        Circle.Position = Config[ConfigKey] and UDim2.new(0, 20, 0, 2) or UDim2.new(0, 2, 0, 2)
+    end)
+end
+
+local function CreateSlider(Page, Text, ConfigKey, Min, Max, PosY, IsDist)
+    local Frame = Instance.new("Frame", Pages[Page])
+    Frame.Size = UDim2.new(1, -5, 0, 42)
+    Frame.Position = UDim2.new(0, 0, 0, PosY)
+    Frame.BackgroundTransparency = 1
+
+    local Label = Instance.new("TextLabel", Frame)
+    Label.Size = UDim2.new(1, 0, 0, 18)
+    Label.Text = "  " .. Text .. ": " .. Config[ConfigKey] .. (IsDist and "m" or "")
+    Label.TextColor3 = Color3.fromRGB(180, 175, 200)
+    Label.TextSize = 12
+    Label.Font = Enum.Font.SourceSans
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.BackgroundTransparency = 1
+
+    local Bar = Instance.new("TextButton", Frame)
+    Bar.Size = UDim2.new(1, -10, 0, 6)
+    Bar.Position = UDim2.new(0, 5, 0, 24)
+    Bar.BackgroundColor3 = Color3.fromRGB(30, 26, 38)
+    Bar.Text = ""
+    Instance.new("UICorner", Bar).CornerRadius = UDim.new(0, 3)
+
+    local Fill = Instance.new("Frame", Bar)
+    Fill.Size = UDim2.new((Config[ConfigKey] - Min) / (Max - Min), 0, 1, 0)
+    Fill.BackgroundColor3 = Color3.fromRGB(150, 70, 255)
+    Instance.new("UICorner", Fill).CornerRadius = UDim.new(0, 3)
+
+    local Dragging = false
+    local function Update(input)
+        local ratio = math.clamp((input.Position.X - Bar.AbsolutePosition.X) / Bar.AbsoluteSize.X, 0, 1)
+        local val = Min + ratio * (Max - Min)
+        if Min >= 1 then val = math.floor(val) else val = tonumber(string.format("%.2f", val)) end
+        Config[ConfigKey] = val
+        Label.Text = "  " .. Text .. ": " .. val .. (IsDist and "m" or "")
+        Fill.Size = UDim2.new(ratio, 0, 1, 0)
+    end
+
+    Bar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then Dragging = true Update(input) end
+    end)
+    game:GetService("UserInputService").InputChanged:Connect(function(input)
+        if Dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then Update(input) end
+    end)
+    game:GetService("UserInputService").InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then Dragging = false end
+    end)
+end
+
+-- НАПОЛНЕНИЕ ВКЛАДОК
+CreateToggle("Combat", "Enable AimBot V3 (Smooth)", "AimBot", 5)
+CreateToggle("Combat", "Silent Aim (Клик по экрану)", "Silent", 40)
+CreateToggle("Combat", "🎯 Real Damage Hitbox (Голова)", "Hitbox", 75)
+CreateToggle("Visuals", "Enable 2D Box + HP Bar", "ESP", 5)
+CreateToggle("Visuals", "Enable Tracers (Линии)", "Tracers", 40)
+CreateSlider("Visuals", "Max ESP Distance", "Distance", 100, 10000, 75, true)
+CreateToggle("Survival", "🏃 Починить выносливость (Бег)", "InfStamina", 5)
+CreateToggle("Survival", "🍗 Убрать голод и жажду", "NoHunger", 40)
+CreateToggle("Settings", "☀️ Day Mode (FullBright)", "FullBright", 5)
+CreateSlider("Settings", "Aim FOV Radius", "FOV", 30, 500, 40, false)
+CreateSlider("Settings", "Aim V3 Smoothing", "AimSmoothing", 0.05, 1, 85, false)
+-- КЭШ ВЕКТОРНОГО DRAWING API ДЛЯ ЭКРАНА
+local DrawingESP = {}
+local function CreateDrawingESP()
+local esp = {
+Box = Drawing.new("Square"),
+Text = Drawing.new("Text"),
+HealthBg = Drawing.new("Square"),
+HealthBar = Drawing.new("Square"),
+Line = Drawing.new("Line")
+}
+esp.Box.Color = Color3.fromRGB(150, 70, 255)
+esp.Box.Thickness = 2
+esp.Box.Filled = false
+esp.Text.Color = Color3.fromRGB(255, 255, 255)
+esp.Text.Size = 13
+esp.Text.Center = true
+esp.Text.Outline = true
+esp.HealthBg.Color = Color3.fromRGB(40, 10, 10)
+esp.HealthBg.Filled = true
+esp.HealthBg.Thickness = 0
+esp.HealthBar.Color = Color3.fromRGB(0, 255, 0)
+esp.HealthBar.Filled = true
+esp.HealthBar.Thickness = 0
+esp.Line.Color = Color3.fromRGB(150, 70, 255)
+esp.Line.Thickness = 1.5
+return esp
+end
+local function HideDrawing(esp)
+if esp then
+esp.Box.Visible = false
+esp.Text.Visible = false
+esp.HealthBg.Visible = false
+esp.HealthBar.Visible = false
+esp.Line.Visible = false
+end
+end
+-- СКАНИРОВАНИЕ ИГРОКОВ В WORSPACE
+local function GetRaspadCharacters()
+local list = {}
+local children = workspace:GetChildren()
+for i = 1, #children do
+local obj = children[i]
+if obj:IsA("Model") and obj.Name ~= LocalPlayer.Name and (obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("LowerTorso") or obj:FindFirstChild("UpperTorso")) then
+list[#list + 1] = obj
+end
+end
+return list
+end
+local function GetTargetParts(model)
+local root = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("LowerTorso") or model:FindFirstChild("UpperTorso")
+local head = model:FindFirstChild("Head")
+return root, head
+end
+local function GetHealthData(model)
+if model:GetAttribute("Health") then return model:GetAttribute("Health"), model:GetAttribute("MaxHealth") or 100 end
+if model:FindFirstChild("Health") and model.Health:IsA("ValueBase") then return model.Health.Value, 100 end
+return 100, 100
+end
+-- ВЫДЕЛЕННЫЙ ПОТОК АИМБОТА И ХИТБОКСОВ (HEARTBEAT)
+game:GetService("RunService").Heartbeat:Connect(function()
+FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+FOVCircle.Radius = Config.FOV
+FOVCircle.Visible = (Config.AimBot or Config.Silent)
+local myChar = LocalPlayer.Character or workspace:FindFirstChild(LocalPlayer.Name)
+local myHrp = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("LowerTorso"))
+if myHrp then
+local closest, shortestDist = nil, math.huge
+local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+local targets = GetRaspadCharacters()
+for i = 1, #targets do
+local model = targets[i]
+local root, head = GetTargetParts(model)
+local curHp, _ = GetHealthData(model)
+if root and curHp > 0 then
+if head and Config.Hitbox then
+head.Size = Vector3.new(Config.HitboxSize, Config.HitboxSize, Config.HitboxSize)
+head.CanCollide = false; head.Transparency = 0.4
+elseif head then
+head.Size = Vector3.new(1.2, 1.2, 1.2); head.Transparency = 0
+end
+local aimPart = (Config.Hitbox and head) or (Config.AimPart == "Head" and head) or root
+if aimPart then
+local dist = (aimPart.Position - myHrp.Position).Magnitude
+if dist <= Config.Distance then
+local pos, onScreen = Camera:WorldToViewportPoint(aimPart.Position)
+if onScreen then
+local mag = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+if mag <= Config.FOV and mag < shortestDist then
+shortestDist = mag; closest = aimPart
+end
+end
+end
+end
+end
+end
+if Config.AimBot and closest then
+Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, closest.Position), Config.AimSmoothing)
+end
+end
+end)
+-- SILENT AIM НА МОБИЛЬНЫЙ ТАП
+game:GetService("UserInputService").InputBegan:Connect(function(input, processed)
+if Config.Silent and not processed and LocalPlayer.Character then
+local myHrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart") or LocalPlayer.Character:FindFirstChild("LowerTorso")
+if myHrp and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+local closest, shortestDist = nil, math.huge
+local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+local targets = GetRaspadCharacters()
+for i = 1, #targets do
+local model = targets[i]
+local root, head = GetTargetParts(model)
+local curHp, _ = GetHealthData(model)
+if root and curHp > 0 then
+local aimPart = (Config.Hitbox and head) or head or root
+if aimPart then
+local dist = (aimPart.Position - myHrp.Position).Magnitude
+if dist <= Config.Distance then
+local pos, onScreen = Camera:WorldToViewportPoint(aimPart.Position)
+if onScreen then
+local mag = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+if mag <= Config.FOV and mag < shortestDist then shortestDist = mag; closest = aimPart end
+end
+end
+end
+end
+end
+if closest then Camera.CFrame = CFrame.new(Camera.CFrame.Position, closest.Position) end
+end
+end
+end)
+-- ЖЕСТКИЙ ИЗОЛИРОВАННЫЙ ПОТОК ГРАФИКИ И ВЫЖИВАНИЯ (RENDERSTEPPED)
+game:GetService("RunService").RenderStepped:Connect(function()
+if Config.FullBright then
+Lighting.TimeOfDay = "14:00:00"; Lighting.Brightness = 3; Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+else
+Lighting.TimeOfDay = DefaultTime
+end
+-- ИСПРАВЛЕННАЯ СИСТЕМА ВЫЖИВАНИЯ ПОД НОВЫЕ ПАПКИ РАСПАДА
+local myChar = LocalPlayer.Character or workspace:FindFirstChild(LocalPlayer.Name)
+local myHrp = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("LowerTorso"))
+if myChar then
+-- Ищем параметры во всех возможных хранилищах игры
+local stats = myChar:FindFirstChild("Stats") or myChar:FindFirstChild("Values") or LocalPlayer:FindFirstChild("PlayerGui")
+local stamina = myChar:FindFirstChild("Stamina") or (stats and stats:FindFirstChild("Stamina"))
+local hunger = myChar:FindFirstChild("Hunger") or (stats and stats:FindFirstChild("Hunger"))
+local thirst = myChar:FindFirstChild("Thirst") or (stats and stats:FindFirstChild("Thirst"))
+if Config.InfStamina and stamina then stamina.Value = 100 end
+if Config.NoHunger then
+if hunger then hunger.Value = 100 end
+if thirst then thirst.Value = 100 end
+end
+if Config.NoRecoil then Camera.RotVelocity = Vector3.new(0,0,0) end
+end
+-- ОБРАБОТКА И ЖЕЛЕЗНАЯ ОЧИСТКА ЗАКЛИНИВШИХ 2D ЭЛЕМЕНТОВ ESP
+local currentTargets = GetRaspadCharacters()
+local guiInset = game:GetService("GuiService"):GetGuiInset()
+local yOffsetFix = guiInset.Y
+-- Главный фикс: если ESP выключено или массив пуст, стираем вообще всё из Drawing
+if not Config.ESP then
+for model, esp in pairs(DrawingESP) do
+HideDrawing(esp)
+end
+else
+-- Создаем временный список активных в этом кадре моделей персонажей
+local activeModelsThisFrame = {}
+for i = 1, #currentTargets do
+local model = currentTargets[i]
+local root, head = GetTargetParts(model)
+local curHp, maxHp = GetHealthData(model)
+if root and curHp > 0 and myHrp then
+local dist = (root.Position - myHrp.Position).Magnitude
+if dist <= Config.Distance then
+local rootScreenPos, onScreen = Camera:WorldToScreenPoint(root.Position)
+if onScreen then
+activeModelsThisFrame[model] = true -- Помечаем, что игрок реально на экране
+if not DrawingESP[model] then DrawingESP[model] = CreateDrawingESP() end
+local esp = DrawingESP[model]
+local topOffset = head and head.Position + Vector3.new(0, 0.8, 0) or root.Position + Vector3.new(0, 3.3, 0)
+local bottomOffset = root.Position - Vector3.new(0, 3.3, 0)
+local headScreenPos = Camera:WorldToScreenPoint(topOffset)
+local legScreenPos = Camera:WorldToScreenPoint(bottomOffset)
+local boxHeight = math.abs(headScreenPos.Y - legScreenPos.Y)
+local boxWidth = boxHeight / 1.4
+local correctedY = headScreenPos.Y + yOffsetFix
+local correctedRootY = rootScreenPos.Y + yOffsetFix
+-- Боксы
+esp.Box.Size = Vector2.new(boxWidth, boxHeight)
+esp.Box.Position = Vector2.new(rootScreenPos.X - (boxWidth / 2), correctedY)
+esp.Box.Visible = true
+-- Ники + Дистанция
+esp.Text.Text = model.Name .. " [" .. math.floor(dist) .. "m]"
+esp.Text.Position = Vector2.new(rootScreenPos.X, correctedY - 18)
+esp.Text.Visible = true
+-- ХП
+esp.HealthBg.Size = Vector2.new(4, boxHeight)
+esp.HealthBg.Position = Vector2.new(rootScreenPos.X - (boxWidth / 2) - 8, correctedY)
+esp.HealthBg.Visible = true
+local hpPercent = math.clamp(curHp / maxHp, 0, 1)
+esp.HealthBar.Size = Vector2.new(4, boxHeight * hpPercent)
+esp.HealthBar.Position = Vector2.new(rootScreenPos.X - (boxWidth / 2) - 8, correctedY + (boxHeight * (1 - hpPercent)))
+esp.HealthBar.Color = Color3.fromHSV(hpPercent * 0.3, 1, 1)
+esp.HealthBar.Visible = true
+-- Линии
+if Config.Tracers then
+esp.Line.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+esp.Line.To = Vector2.new(rootScreenPos.X, correctedRootY + (boxHeight / 2))
+esp.Line.Visible = true
+else
+esp.Line.Visible = false
+end
+end
+end
+end
+end
+-- Цикл жесткой зачистки: если модель пропала из кадра или детектора, полностью тушим графику
+for model, esp in pairs(DrawingESP) do
+if not activeModelsThisFrame[model] then
+HideDrawing(esp)
+end
+end
+end
+end)
