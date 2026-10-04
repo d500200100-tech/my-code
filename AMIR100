@@ -1,0 +1,447 @@
+-- DEEPSEEK VOID HUB v13.6 (👑 5-TAB ADVANCED MOBILE EDITION)
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = game:GetService("CoreGui")
+ScreenGui.ResetOnSpawn = false
+
+-- Глобальные настройки (Обновлено под v13.6)
+local Config = { 
+    AimBot = false, Silent = false, ESP = false, Tracers = false, Chams = false,
+    Hitbox = false, TeamCheck = true, FullBright = false, InfStamina = true, NoHunger = true,
+    KillAura = false, LootMagnet = false, NoRecoil = false, FOV = 150, Distance = 10000, 
+    AimPart = "Head", HitboxSize = 5, AuraRange = 25, AimSmoothing = 0.25 -- V3 Дополнение
+}
+
+local Camera = workspace.CurrentCamera
+local LocalPlayer = game.Players.LocalPlayer
+local CurrentTarget = nil
+local Lighting = game:GetService("Lighting")
+local DefaultTime = Lighting.TimeOfDay
+
+-- Фиолетовый круг FOV через Drawing
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(130, 60, 255)
+FOVCircle.Thickness = 1.5
+FOVCircle.Filled = false
+FOVCircle.Transparency = 0.8
+FOVCircle.Visible = false
+
+-- Главное окно UI
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 360, 0, 230)
+MainFrame.Position = UDim2.new(0.3, 0, 0.3, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(13, 11, 19)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 12)
+local MainStroke = Instance.new("UIStroke", MainFrame)
+MainStroke.Thickness = 1.8
+MainStroke.Color = Color3.fromRGB(130, 60, 255)
+
+-- Кнопка открытия/закрытия
+local OpenBtn = Instance.new("TextButton")
+OpenBtn.Size = UDim2.new(0, 95, 0, 32)
+OpenBtn.Position = UDim2.new(0.02, 0, 0.15, 0)
+OpenBtn.BackgroundColor3 = Color3.fromRGB(13, 11, 19)
+OpenBtn.Text = "Open Menu"
+OpenBtn.TextColor3 = Color3.fromRGB(130, 60, 255)
+OpenBtn.Font = Enum.Font.SourceSansBold
+OpenBtn.TextSize = 13
+OpenBtn.Visible = false
+OpenBtn.Active = true
+OpenBtn.Draggable = true
+OpenBtn.Parent = ScreenGui
+Instance.new("UICorner", OpenBtn).CornerRadius = UDim.new(0, 6)
+local OpenStroke = Instance.new("UIStroke", OpenBtn)
+OpenStroke.Color = Color3.fromRGB(130, 60, 255)
+
+-- Боковое меню вкладок (Sidebar)
+local Sidebar = Instance.new("Frame", MainFrame)
+Sidebar.Size = UDim2.new(0, 95, 1, 0)
+Sidebar.BackgroundColor3 = Color3.fromRGB(9, 7, 13)
+Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 12)
+
+local Logo = Instance.new("TextLabel", Sidebar)
+Logo.Size = UDim2.new(1, 0, 0, 30)
+Logo.Text = "VOID HUB v13.6"
+Logo.TextColor3 = Color3.fromRGB(160, 90, 255)
+Logo.Font = Enum.Font.SourceSansBold
+Logo.TextSize = 11
+Logo.BackgroundTransparency = 1
+
+local ContentFrame = Instance.new("Frame", MainFrame)
+ContentFrame.Size = UDim2.new(1, -105, 1, -10)
+ContentFrame.Position = UDim2.new(0, 100, 0, 5)
+ContentFrame.BackgroundTransparency = 1
+
+-- Скролл-страницы
+local Pages = {}
+local function CreatePage(Name)
+    local SF = Instance.new("ScrollingFrame", ContentFrame)
+    SF.Size = UDim2.new(1, 0, 1, 0)
+    SF.BackgroundTransparency = 1
+    SF.ScrollBarThickness = 2
+    SF.CanvasSize = UDim2.new(0, 0, 0, 280)
+    SF.Visible = (Name == "Combat")
+    Pages[Name] = SF
+end
+CreatePage("Combat")
+CreatePage("Visuals")
+CreatePage("Blatant")
+CreatePage("Survival")
+CreatePage("Settings")
+
+-- Генератор вкладок на боковой панели
+local ActiveTab = "Combat"
+local function CreateTabBtn(Name, DisplayName, PosY)
+    local Btn = Instance.new("TextButton", Sidebar)
+    Btn.Size = UDim2.new(0.9, 0, 0, 24)
+    Btn.Position = UDim2.new(0.05, 0, 0, PosY)
+    Btn.BackgroundColor3 = (Name == ActiveTab) and Color3.fromRGB(35, 20, 55) or Color3.fromRGB(16, 13, 22)
+    Btn.Text = DisplayName
+    Btn.TextColor3 = (Name == ActiveTab) and Color3.fromRGB(210, 160, 255) or Color3.fromRGB(130, 120, 140)
+    Btn.Font = Enum.Font.SourceSansBold
+    Btn.TextSize = 11
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 5)
+
+    Btn.MouseButton1Click:Connect(function()
+        ActiveTab = Name
+        for TName, TFrame in pairs(Pages) do TFrame.Visible = (TName == Name) end
+        for _, child in pairs(Sidebar:GetChildren()) do
+            if child:IsA("TextButton") then
+                local isCurrent = (child.Text == DisplayName)
+                child.BackgroundColor3 = isCurrent and Color3.fromRGB(35, 20, 55) or Color3.fromRGB(16, 13, 22)
+                child.TextColor3 = isCurrent and Color3.fromRGB(210, 160, 255) or Color3.fromRGB(130, 120, 140)
+            end
+        end
+    end)
+end
+CreateTabBtn("Combat", "⚔️ Combat", 35)
+CreateTabBtn("Visuals", "👁️ Visuals", 65)
+CreateTabBtn("Blatant", "🔥 Blatant", 95)
+CreateTabBtn("Survival", "🌱 Survival", 125)
+CreateTabBtn("Settings", "⚙️ Settings", 155)
+
+-- Кнопка сворачивания (—)
+local MinimizeBtn = Instance.new("TextButton", MainFrame)
+MinimizeBtn.Size = UDim2.new(0, 20, 0, 20)
+MinimizeBtn.Position = UDim2.new(1, -25, 0, 5)
+MinimizeBtn.BackgroundTransparency = 1
+MinimizeBtn.Text = "—"
+MinimizeBtn.TextColor3 = Color3.fromRGB(160, 130, 220)
+MinimizeBtn.Font = Enum.Font.SourceSansBold
+MinimizeBtn.TextSize = 14
+MinimizeBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false OpenBtn.Visible = true end)
+OpenBtn.MouseButton1Click:Connect(function() MainFrame.Visible = true OpenBtn.Visible = false end)
+
+-- Конструктор тумблеров (Toggles)
+local function CreateToggle(Page, Text, ConfigKey, PosY)
+    local Frame = Instance.new("Frame", Pages[Page])
+    Frame.Size = UDim2.new(1, -5, 0, 30)
+    Frame.Position = UDim2.new(0, 0, 0, PosY)
+    Frame.BackgroundTransparency = 1
+
+    local Label = Instance.new("TextLabel", Frame)
+    Label.Size = UDim2.new(0.7, 0, 1, 0)
+    Label.Text = Text
+    Label.TextColor3 = Color3.fromRGB(225, 215, 245)
+    Label.TextSize = 12
+    Label.Font = Enum.Font.SourceSans
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.BackgroundTransparency = 1
+
+    local Switch = Instance.new("TextButton", Frame)
+    Switch.Size = UDim2.new(0, 32, 0, 16)
+    Switch.Position = UDim2.new(1, -36, 0, 7)
+    Switch.BackgroundColor3 = Config[ConfigKey] and Color3.fromRGB(130, 60, 255) or Color3.fromRGB(35, 30, 45)
+    Switch.Text = ""
+    Instance.new("UICorner", Switch).CornerRadius = UDim.new(0, 8)
+
+    local Circle = Instance.new("Frame", Switch)
+    Circle.Size = UDim2.new(0, 12, 0, 12)
+    Circle.Position = Config[ConfigKey] and UDim2.new(0, 18, 0, 2) or UDim2.new(0, 2, 0, 2)
+    Circle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    Instance.new("UICorner", Circle).CornerRadius = UDim.new(0, 6)
+
+    Switch.MouseButton1Click:Connect(function()
+        Config[ConfigKey] = not Config[ConfigKey]
+        Switch.BackgroundColor3 = Config[ConfigKey] and Color3.fromRGB(130, 60, 255) or Color3.fromRGB(35, 30, 45)
+        Circle.Position = Config[ConfigKey] and UDim2.new(0, 18, 0, 2) or UDim2.new(0, 2, 0, 2)
+    end)
+end
+
+-- Конструктор ползунков (Sliders)
+local function CreateSlider(Page, Text, ConfigKey, Min, Max, PosY, IsDist)
+    local Frame = Instance.new("Frame", Pages[Page])
+    Frame.Size = UDim2.new(1, -5, 0, 38)
+    Frame.Position = UDim2.new(0, 0, 0, PosY)
+    Frame.BackgroundTransparency = 1
+
+    local Label = Instance.new("TextLabel", Frame)
+    Label.Size = UDim2.new(1, 0, 0, 16)
+    Label.Text = Text .. ": " .. Config[ConfigKey] .. (IsDist and "m" or "")
+    Label.TextColor3 = Color3.fromRGB(175, 165, 195)
+    Label.TextSize = 11
+    Label.Font = Enum.Font.SourceSans
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.BackgroundTransparency = 1
+
+    local Bar = Instance.new("TextButton", Frame)
+    Bar.Size = UDim2.new(1, -5, 0, 5)
+    Bar.Position = UDim2.new(0, 0, 0, 20)
+    Bar.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
+    Bar.Text = ""
+    Instance.new("UICorner", Bar).CornerRadius = UDim.new(0, 3)
+
+    local Fill = Instance.new("Frame", Bar)
+    Fill.Size = UDim2.new((Config[ConfigKey] - Min) / (Max - Min), 0, 1, 0)
+    Fill.BackgroundColor3 = Color3.fromRGB(130, 60, 255)
+    Instance.new("UICorner", Fill).CornerRadius = UDim.new(0, 3)
+
+    local Dragging = false
+    local function Update(input)
+        local ratio = math.clamp((input.Position.X - Bar.AbsolutePosition.X) / Bar.AbsoluteSize.X, 0, 1)
+        local val = Min + ratio * (Max - Min)
+        if Min >= 1 then val = math.floor(val) else val = tonumber(string.format("%.2f", val)) end
+        Config[ConfigKey] = val
+        Label.Text = Text .. ": " .. val .. (IsDist and "m" or "")
+        Fill.Size = UDim2.new(ratio, 0, 1, 0)
+    end
+
+    Bar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then Dragging = true Update(input) end
+    end)
+    game:GetService("UserInputService").InputChanged:Connect(function(input)
+        if Dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then Update(input) end
+    end)
+    game:GetService("UserInputService").InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then Dragging = false end
+    end)
+end
+
+-- ⚔️ ВКЛАДКА COMBAT
+CreateToggle("Combat", "Enable AimBot V3 (Smooth)", "AimBot", 5)
+CreateToggle("Combat", "Silent Aim (Клик)", "Silent", 35)
+CreateToggle("Combat", "Team Check (Игнор своих)", "TeamCheck", 65)
+CreateToggle("Combat", "Hitbox Expander", "Hitbox", 95)
+CreateSlider("Combat", "Hitbox Size", "HitboxSize", 2, 15, 125, false)
+
+local BoneBtn = Instance.new("TextButton", Pages.Combat)
+BoneBtn.Size = UDim2.new(1, -5, 0, 24)
+BoneBtn.Position = UDim2.new(0, 0, 0, 165)
+BoneBtn.BackgroundColor3 = Color3.fromRGB(28, 24, 38)
+BoneBtn.Text = "Aim Target: Head"
+BoneBtn.TextColor3 = Color3.fromRGB(190, 150, 255)
+BoneBtn.Font = Enum.Font.SourceSansBold
+BoneBtn.TextSize = 11
+Instance.new("UICorner", BoneBtn).CornerRadius = UDim.new(0, 5)
+BoneBtn.MouseButton1Click:Connect(function()
+    Config.AimPart = (Config.AimPart == "Head") and "HumanoidRootPart" or "Head"
+BoneBtn.Text = "Aim Target: " .. (Config.AimPart == "Head" and "Head" or "Torso")
+end)
+-- 👁️ ВКЛАДКА VISUALS
+CreateToggle("Visuals", "Enable Glow ESP", "ESP", 5)
+CreateToggle("Visuals", "Enable Tracers (Линии)", "Tracers", 35)
+CreateToggle("Visuals", "Enable Chams (Заливка)", "Chams", 65)
+CreateSlider("Visuals", "Max ESP Distance", "Distance", 100, 10000, 100, true)
+-- 🔥 ВКЛАДКА BLATANT
+CreateToggle("Blatant", "🔮 Kill Aura V3 (Raycast)", "KillAura", 5)
+CreateToggle("Blatant", "🧲 Auto-Loot Magnet", "LootMagnet", 35)
+CreateToggle("Blatant", "💥 No Recoil / No Spread", "NoRecoil", 65)
+-- 🌱 ВКЛАДКА SURVIVAL
+CreateToggle("Survival", "🏃 Infinite Stamina (Бег)", "InfStamina", 5)
+CreateToggle("Survival", "🍗 No Hunger & Thirst", "NoHunger", 35)
+-- ⚙️ ВКЛАДКА SETTINGS
+CreateToggle("Settings", "☀️ Day Mode (FullBright)", "FullBright", 5)
+CreateSlider("Settings", "Aim FOV Radius", "FOV", 30, 500, 35, false)
+CreateSlider("Settings", "Aim V3 Smoothing", "AimSmoothing", 0.05, 1, 75, false)
+-- Функция проверки игроков
+local function IsValid(p)
+if p and p ~= LocalPlayer and p.Character and p.Character:FindFirstChild(Config.AimPart) and p.Character:FindFirstChild("Humanoid") then
+if p.Character.Humanoid.Health > 0 and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+if Config.TeamCheck and p.Team == LocalPlayer.Team and LocalPlayer.Team ~= nil then return false end
+local dist = (p.Character[Config.AimPart].Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+if dist <= Config.Distance then return true end
+end
+end
+return false
+end
+-- Проверка стены для Kill Aura V3
+local function IsVisible(targetPart)
+if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Head") then return false end
+local ray = Ray.new(LocalPlayer.Character.Head.Position, (targetPart.Position - LocalPlayer.Character.Head.Position).Unit * 30)
+local hit, pos = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, targetPart.Parent})
+return hit == nil
+end
+-- Система Aim Lock
+local function GetClosest()
+if CurrentTarget and IsValid(CurrentTarget) then
+local pos, onScreen = Camera:WorldToViewportPoint(CurrentTarget.Character[Config.AimPart].Position)
+local mag = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+if onScreen and mag <= Config.FOV then return CurrentTarget end
+end
+local closest, shortestDist = nil, math.huge
+local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+for _, p in pairs(game.Players:GetPlayers()) do
+if IsValid(p) then
+local pos, onScreen = Camera:WorldToViewportPoint(p.Character[Config.AimPart].Position)
+if onScreen then
+local mag = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+if mag <= Config.FOV and mag < shortestDist then shortestDist = mag; closest = p end
+end
+end
+end
+CurrentTarget = closest; return closest
+end
+-- Мобильный триггер аима
+game:GetService("UserInputService").InputBegan:Connect(function(input, processed)
+if Config.Silent and not processed then
+if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+local target = GetClosest()
+if target and target.Character and target.Character:FindFirstChild(Config.AimPart) then
+local targetPos = target.Character[Config.AimPart].Position
+Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
+end
+end
+end
+end)
+-- Высокоскоростной поток ультимативных функций
+game:GetService("RunService").RenderStepped:Connect(function()
+FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+FOVCircle.Radius = Config.FOV
+FOVCircle.Visible = (Config.AimBot or Config.Silent)
+if Config.FullBright then
+Lighting.TimeOfDay = "14:00:00"
+Lighting.Brightness = 3
+Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+else
+Lighting.TimeOfDay = DefaultTime
+end
+local myChar = LocalPlayer.Character
+local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+-- Выживание и Заморозка параметров
+if myChar and myChar:FindFirstChild("Humanoid") then
+local stamina = myChar:FindFirstChild("Stamina") or LocalPlayer:FindFirstChild("Stamina")
+local hunger = myChar:FindFirstChild("Hunger") or LocalPlayer:FindFirstChild("Hunger") or myChar:FindFirstChild("Energy")
+local thirst = myChar:FindFirstChild("Thirst") or LocalPlayer:FindFirstChild("Water") or myChar:FindFirstChild("Thirst")
+if Config.InfStamina and stamina and (stamina:IsA("NumberValue") or stamina:IsA("IntValue")) then stamina.Value = 100 end
+if Config.NoHunger then
+if hunger and (hunger:IsA("NumberValue") or hunger:IsA("IntValue")) then hunger.Value = 100 end
+if thirst and (thirst:IsA("NumberValue") or thirst:IsA("IntValue")) then thirst.Value = 100 end
+end
+if Config.NoRecoil then Camera.RotVelocity = Vector3.new(0,0,0) end
+end
+-- ЛОГИКА KILL AURA V3 (С проверкой видимости через стены)
+if Config.KillAura and myHrp then
+for _, p in pairs(game.Players:GetPlayers()) do
+if IsValid(p) then
+local enemyHrp = p.Character:FindFirstChild("HumanoidRootPart")
+local enemyHead = p.Character:FindFirstChild("Head")
+if enemyHrp and enemyHead and (enemyHrp.Position - myHrp.Position).Magnitude <= Config.AuraRange then
+if IsVisible(enemyHead) then -- V3 Фикс стен
+local combatEvent = game:GetService("ReplicatedStorage"):FindFirstChild("ProjectileEvent") or game:GetService("ReplicatedStorage"):FindFirstChild("HitEvent")
+if combatEvent and combatEvent:IsA("RemoteEvent") then
+combatEvent:FireServer(enemyHead.Position, enemyHead)
+end
+end
+end
+end
+end
+end
+-- ЛОГИКА LOOT MAGNET
+if Config.LootMagnet and myHrp then
+for _, obj in pairs(workspace:GetChildren()) do
+if obj:IsA("DroppedSource") or obj:IsA("SpawnedItem") or obj.Name:lower():find("dropped") or obj.Name:lower():find("item") then
+local rootPart = obj:FindFirstChildOfClass("BasePart")
+if rootPart and (rootPart.Position - myHrp.Position).Magnitude <= 50 then
+rootPart.CFrame = myHrp.CFrame + Vector3.new(0, 1, 0)
+end
+end
+end
+end
+-- ОБЫЧНЫЙ АИМБОТ V3 (Smooth Vector Interpolation)
+if Config.AimBot then
+local target = GetClosest()
+if target and target.Character and target.Character:FindFirstChild(Config.AimPart) then
+local targetPos = target.Character[Config.AimPart].Position
+local targetCFrame = CFrame.new(Camera.CFrame.Position, targetPos)
+-- Плавная интерполяция CFrame
+Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, Config.AimSmoothing)
+end
+else
+if not Config.Silent then CurrentTarget = nil end
+end
+-- Отрисовка визуалов ESP
+for _, p in pairs(game.Players:GetPlayers()) do
+if p ~= LocalPlayer and p.Character then
+local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+local head = p.Character:FindFirstChild("Head")
+local hum = p.Character:FindFirstChild("Humanoid")
+if hrp and head and hum and hum.Health > 0 and myHrp then
+local dist = (hrp.Position - myHrp.Position).Magnitude
+local isTeammate = Config.TeamCheck and p.Team == LocalPlayer.Team and LocalPlayer.Team ~= nil
+if Config.Hitbox and not isTeammate then
+head.Size = Vector3.new(Config.HitboxSize, Config.HitboxSize, Config.HitboxSize)
+head.CanCollide = false
+head.Transparency = 0.5
+else
+head.Size = Vector3.new(1.2, 1.2, 1.2)
+head.Transparency = 0
+end
+if dist <= Config.Distance and not isTeammate then
+local bbg = hrp:FindFirstChild("MobileESP")
+if Config.ESP then
+if not bbg then
+bbg = Instance.new("BillboardGui", hrp); bbg.Name = "MobileESP"; bbg.Size = UDim2.new(0, 140, 0, 22); bbg.AlwaysOnTop = true; bbg.StudsOffset = Vector3.new(0, 3.5, 0)
+local tl = Instance.new("TextLabel", bbg); tl.Size = UDim2.new(1,0,1,0); tl.BackgroundTransparency = 1; tl.TextColor3 = Color3.fromRGB(160, 90, 255); tl.TextSize = 11; tl.Font = Enum.Font.SourceSansBold
+end
+bbg.Enabled = true
+bbg.TextLabel.Text = p.Name .. " [" .. math.floor(dist) .. "m]"
+else
+if bbg then bbg.Enabled = false end
+end
+local highlight = p.Character:FindFirstChild("ChamsHighlight")
+if Config.ESP or Config.Chams then
+if not highlight then
+highlight = Instance.new("Highlight", p.Character)
+highlight.Name = "ChamsHighlight"
+highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+end
+highlight.Enabled = true
+if Config.Chams then
+highlight.FillColor = Color3.fromRGB(130, 60, 255)
+highlight.FillTransparency = 0.5
+highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+highlight.OutlineTransparency = 0.2
+else
+highlight.FillTransparency = 1
+highlight.OutlineColor = Color3.fromRGB(160, 90, 255)
+highlight.OutlineTransparency = 0
+end
+else
+if highlight then highlight.Enabled = false end
+end
+local tracer = hrp:FindFirstChild("TracerLine")
+if Config.Tracers then
+if not tracer then
+tracer = Instance.new("BoxHandleAdornment", hrp)
+tracer.Name = "TracerLine"
+tracer.AlwaysOnTop = true
+tracer.Color3 = Color3.fromRGB(130, 60, 255)
+tracer.Transparency = 0.6
+tracer.Adornee = hrp
+end
+tracer.Size = Vector3.new(0.08, 0.08, dist)
+tracer.CFrame = CFrame.new(Vector3.new(0, 0, -dist/2))
+else
+if tracer then tracer:Destroy() end
+end
+else
+if hrp:FindFirstChild("MobileESP") then hrp.MobileESP.Enabled = false end
+if p.Character:FindFirstChild("ChamsHighlight") then p.Character.ChamsHighlight.Enabled = false end
+if hrp:FindFirstChild("TracerLine") then hrp.TracerLine:Destroy() end
+end
+end
+end
+end
+end)
