@@ -1,0 +1,537 @@
+if game.CoreGui:FindFirstChild("KixdevNexusMenu") then
+    game.CoreGui.KixdevNexusMenu:Destroy()
+end
+
+local UI = Instance.new("ScreenGui")
+UI.Name = "KixdevNexusMenu"
+UI.Parent = game.CoreGui
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local Config = {
+    SafeBlink = false,
+    InfJump = false,
+    
+    -- Аимбот
+    Aim = false,
+    AimRadius = 110,
+    AimSmooth = 0.1,
+    WallCheck = true,
+    TeamCheck = false,
+    
+    -- Боевка 
+    Silent = false,
+    SilentRadius = 160,
+    OneShot = false,
+    NoRecoil = false,
+    Hitbox = false,
+    
+    -- Самая читерская функция
+    MassKillGod = false,
+    
+    -- Включалки визуала
+    EspBoxes = false,
+    EspNames = false,
+    EspDist = false,
+    EspHP = false,
+    EspTracers = false,
+    EspDistance = 1000
+}
+
+local function CreateLightCircle(color)
+    local f = Instance.new("Frame")
+    f.AnchorPoint = Vector2.new(0.5, 0.5)
+    f.Position = UDim2.new(0.5, 0, 0.5, 0)
+    f.BackgroundTransparency = 1
+    f.Visible = false
+    f.Parent = UI
+    local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(1, 0) corner.Parent = f
+    local stroke = Instance.new("UIStroke") stroke.Color = color stroke.Thickness = 1.5 stroke.Parent = f
+    return f
+end
+
+local AimCircle = CreateLightCircle(Color3.fromRGB(168, 50, 255))
+local SilentCircle = CreateLightCircle(Color3.fromRGB(0, 255, 255))
+
+-- ИСПРАВЛЕННЫЙ ТАЙМАУТ-РЕЙКАСТ (Больше не вешает скрипт!)
+local function isVisible(targetPart)
+    if not Config.WallCheck then return true end
+    local char = LocalPlayer.Character
+    if not char or not targetPart then return false end
+    
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {char, targetPart.Parent}
+    
+    local origin = Camera.CFrame.Position
+    local direction = targetPart.Position - origin
+    
+    local ray = workspace:Raycast(origin, direction, params)
+    return ray == nil
+end
+
+-- ИСПРАВЛЕННЫЙ БЕЗОПАСНЫЙ СБОР ЦЕЛИ
+local function getClosestLarb(maxRadius)
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local target, mag = nil, maxRadius
+    
+    -- Защита от зависания: перебираем только живых игроков на экране
+    for _, v in ipairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("Head") then
+            if Config.TeamCheck and v.Team == LocalPlayer.Team then continue end
+            local hum = v.Character:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                local head = v.Character.Head
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                    if dist < mag then 
+                        if isVisible(head) then 
+                            mag = dist
+                            target = head 
+                        end 
+                    end
+                end
+            end
+        end
+    end
+    return target
+end
+
+-- ===========================================================================
+-- ИНТЕРФЕЙС ТВОЕГО МЕНЮ
+-- ===========================================================================
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 520, 0, 315)
+MainFrame.Position = UDim2.new(0.5, -260, 0.15, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(13, 10, 18)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = UI
+local MC = Instance.new("UICorner") MC.CornerRadius = UDim.new(0, 8) MC.Parent = MainFrame
+
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 38)
+TopBar.BackgroundColor3 = Color3.fromRGB(22, 16, 32)
+TopBar.BorderSizePixel = 0
+TopBar.Parent = MainFrame
+local TBC = Instance.new("UICorner") TBC.CornerRadius = UDim.new(0, 8) TBC.Parent = TopBar
+
+local NeonLine = Instance.new("Frame")
+NeonLine.Size = UDim2.new(1, 0, 0, 2)
+NeonLine.Position = UDim2.new(0, 0, 1, -2)
+NeonLine.BackgroundColor3 = Color3.fromRGB(168, 50, 255)
+NeonLine.Parent = TopBar
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -80, 1, 0)
+Title.Position = UDim2.new(0, 15, 0, 0)
+Title.Text = "🔮 KIXDEV | NEXUS PREMIUM RUST [v20.0] ANTI-FREEZE & MASS KILL"
+Title.TextColor3 = Color3.fromRGB(240, 230, 255)
+Title.BackgroundTransparency = 1
+Title.TextSize = 13
+Title.Font = Enum.Font.SourceSansBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TopBar
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 35, 1, 0)
+MinBtn.Position = UDim2.new(1, -70, 0, 0)
+MinBtn.Text = "—"
+MinBtn.TextColor3 = Color3.fromRGB(180, 170, 200)
+MinBtn.BackgroundTransparency = 1
+MinBtn.TextSize = 16
+MinBtn.Font = Enum.Font.SourceSansBold
+MinBtn.Parent = TopBar
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 35, 1, 0)
+CloseBtn.Position = UDim2.new(1, -35, 0, 0)
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 75, 75)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.TextSize = 16
+CloseBtn.Font = Enum.Font.SourceSansBold
+CloseBtn.Parent = TopBar
+CloseBtn.MouseButton1Click:Connect(function() UI:Destroy() end)
+
+local OpenBtn = Instance.new("TextButton")
+OpenBtn.Size = UDim2.new(0, 55, 0, 55)
+OpenBtn.Position = UDim2.new(0.02, 0, 0.2, 0)
+OpenBtn.BackgroundColor3 = Color3.fromRGB(22, 16, 32)
+OpenBtn.Text = "NEXUS"
+OpenBtn.TextColor3 = Color3.fromRGB(168, 50, 255)
+OpenBtn.Font = Enum.Font.SourceSansBold
+OpenBtn.TextSize = 11
+OpenBtn.Visible = false
+OpenBtn.Parent = UI
+local OBC = Instance.new("UICorner") OBC.CornerRadius = UDim.new(1, 0) OBC.Parent = OpenBtn
+
+MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false OpenBtn.Visible = true end)
+OpenBtn.MouseButton1Click:Connect(function() MainFrame.Visible = true OpenBtn.Visible = false end)
+
+local Sidebar = Instance.new("Frame")
+Sidebar.Size = UDim2.new(0, 125, 1, -38)
+Sidebar.Position = UDim2.new(0, 0, 0, 38)
+Sidebar.BackgroundColor3 = Color3.fromRGB(16, 12, 22)
+Sidebar.Parent = MainFrame
+local SBL = Instance.new("UIListLayout") SBL.Padding = UDim.new(0, 2) SBL.Parent = Sidebar
+
+local Container = Instance.new("Frame")
+Container.Size = UDim2.new(1, -135, 1, -45)
+Container.Position = UDim2.new(0, 130, 0, 42)
+Container.BackgroundTransparency = 1
+Container.Parent = MainFrame
+
+local Pages = {}
+local CurrentPage = nil
+
+local function CreateTab(name)
+    local tabBtn = Instance.new("TextButton")
+    tabBtn.Size = UDim2.new(1, 0, 0, 38)
+    tabBtn.BackgroundColor3 = Color3.fromRGB(16, 12, 22)
+    tabBtn.TextColor3 = Color3.fromRGB(140, 130, 160)
+    tabBtn.Text = "  ❖ " .. name
+    tabBtn.Font = Enum.Font.SourceSansSemibold
+    tabBtn.TextSize = 13
+    tabBtn.TextXAlignment = Enum.TextXAlignment.Left
+    tabBtn.BorderSizePixel = 0
+    tabBtn.Parent = Sidebar
+
+    local scrollPage = Instance.new("ScrollingFrame")
+    scrollPage.Size = UDim2.new(1, 0, 1, 0)
+    scrollPage.BackgroundTransparency = 1
+    scrollPage.CanvasSize = UDim2.new(0, 0, 0, 500)
+    scrollPage.ScrollBarThickness = 2
+    scrollPage.ScrollBarImageColor3 = Color3.fromRGB(168, 50, 255)
+    scrollPage.Visible = false
+    scrollPage.Parent = Container
+    local PL = Instance.new("UIListLayout") PL.Padding = UDim.new(0, 6) PL.Parent = scrollPage
+
+    Pages[name] = scrollPage
+    tabBtn.MouseButton1Click:Connect(function()
+        for _, p in pairs(Pages) do p.Visible = false end
+        for _, b in pairs(Sidebar:GetChildren()) do 
+            if b:IsA("TextButton") then 
+                b.BackgroundColor3 = Color3.fromRGB(16, 12, 22) 
+                b.TextColor3 = Color3.fromRGB(140, 130, 160) 
+            end 
+        end
+        scrollPage.Visible = true
+        tabBtn.BackgroundColor3 = Color3.fromRGB(26, 18, 38)
+        tabBtn.TextColor3 = Color3.fromRGB(168, 50, 255)
+    end)
+    if CurrentPage == nil then 
+        CurrentPage = scrollPage 
+        scrollPage.Visible = true 
+        tabBtn.BackgroundColor3 = Color3.fromRGB(26, 18, 38) 
+        tabBtn.TextColor3 = Color3.fromRGB(168, 50, 255) 
+    end
+    return scrollPage
+end
+
+local function AddToggle(page, text, state, cb)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -10, 0, 34)
+    btn.BackgroundColor3 = state and Color3.fromRGB(45, 20, 55) or Color3.fromRGB(24, 18, 34)
+    btn.TextColor3 = state and Color3.fromRGB(168, 50, 255) or Color3.fromRGB(220, 210, 235)
+    btn.Text = text .. (state and " : ON" or " : OFF")
+    btn.Font = Enum.Font.SourceSansSemibold
+    btn.TextSize = 14
+    btn.Parent = page
+    local bc = Instance.new("UICorner") bc.CornerRadius = UDim.new(0, 5) bc.Parent = btn
+    local enabled = state
+    btn.MouseButton1Click:Connect(function()
+        enabled = not enabled
+        btn.Text = text .. (enabled and " : ON" or " : OFF")
+        btn.TextColor3 = enabled and Color3.fromRGB(168, 50, 255) or Color3.fromRGB(220, 210, 235)
+        btn.BackgroundColor3 = enabled and Color3.fromRGB(45, 20, 55) or Color3.fromRGB(24, 18, 34)
+        cb(enabled)
+    end)
+end
+
+local function AddSlider(page, text, min, max, default, cb)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -10, 0, 45)
+    frame.BackgroundTransparency = 1
+    frame.Parent = page
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, 18)
+    label.Text = text .. ": " .. tostring(default)
+    label.TextColor3 = Color3.fromRGB(220, 210, 235)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.SourceSansSemibold
+    label.TextSize = 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+
+    local slideBar = Instance.new("TextButton")
+slideBar.Size = UDim2.new(1, 0, 0, 8)
+slideBar.Position = UDim2.new(0, 0, 0, 22)
+slideBar.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
+slideBar.Text = ""
+slideBar.Parent = frame
+local sc = Instance.new("UICorner") sc.CornerRadius = UDim.new(0, 4) sc.Parent = slideBar
+local fill = Instance.new("Frame")
+fill.Size = UDim2.new((default - min)/(max - min), 0, 1, 0)
+fill.BackgroundColor3 = Color3.fromRGB(168, 50, 255)
+fill.BorderSizePixel = 0
+fill.Parent = slideBar
+local fc = Instance.new("UICorner") fc.CornerRadius = UDim.new(0, 4) fc.Parent = fill
+slideBar.MouseButton1Down:Connect(function()
+local connection
+connection = RunService.Heartbeat:Connect(function()
+if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+local mousePos = UserInputService:GetMouseLocation().X
+local barPos = slideBar.AbsolutePosition.X
+local barWidth = slideBar.AbsoluteSize.X
+local percentage = math.clamp((mousePos - barPos) / barWidth, 0, 1)
+fill.Size = UDim2.new(percentage, 0, 1, 0)
+local val = math.floor(min + (max - min) * percentage)
+label.Text = text .. ": " .. tostring(val)
+cb(val)
+else
+connection:Disconnect()
+end
+end)
+end)
+end
+local TabHome = CreateTab("Home")
+local TabCombat = CreateTab("Combat")
+local TabVisuals = CreateTab("Visuals")
+-- СВЕРХЧИТЕРСКАЯ ВКЛАДКА НА HOME
+AddToggle(TabHome, "⚡ GODMODE + MASS KILL (Карта)", false, function(v) Config.MassKillGod = v end)
+AddToggle(TabHome, "Безопасный Рывок (Click Blink)", false, function(v) Config.SafeBlink = v end)
+AddToggle(TabHome, "Бесконечный прыжок", false, function(v) Config.InfJump = v end)
+-- Вкладка COMBAT
+AddToggle(TabCombat, "Авто-наводка Aimbot", false, function(v) Config.Aim = v AimCircle.Visible = v end)
+AddSlider(TabCombat, "Радиус Аима (FOV)", 10, 800, 110, function(v) Config.AimRadius = v end)
+AddToggle(TabCombat, "Проверка стен (Wall Check)", true, function(v) Config.WallCheck = v end)
+AddToggle(TabCombat, "Проверка команды (Team Check)", false, function(v) Config.TeamCheck = v end)
+AddToggle(TabCombat, "РАБОЧИЙ Сайлент Аим", false, function(v) Config.Silent = v SilentCircle.Visible = v end)
+AddSlider(TabCombat, "Радиус Сайлента", 20, 400, 160, function(v) Config.SilentRadius = v end)
+AddToggle(TabCombat, "Убийство с 1 пули (ВАНШОТ)", false, function(v) Config.OneShot = v end)
+AddToggle(TabCombat, "Зажим без отдачи (No Recoil)", false, function(v) Config.NoRecoil = v end)
+AddToggle(TabCombat, "Нормальные хитбоксы людей", false, function(v) Config.Hitbox = v end)
+-- Вкладка VISUALS (Раздельные включалки Ларба)
+AddToggle(TabVisuals, "Player Boxes (3D + Силуэт)", false, function(v) Config.EspBoxes = v end)
+AddToggle(TabVisuals, "Name Tags (Ники врагов)", false, function(v) Config.EspNames = v end)
+AddToggle(TabVisuals, "Distance Info (Дистанция)", false, function(v) Config.EspDist = v end)
+AddToggle(TabVisuals, "Health Bar (Полоска жизни)", false, function(v) Config.EspHP = v end)
+AddToggle(TabVisuals, "Tracers (Линии к ногам)", false, function(v) Config.EspTracers = v end)
+AddSlider(TabVisuals, "Макс. Дистанция ESP", 100, 50000, 1000, function(v) Config.EspDistance = v end)
+-- ===========================================================================
+-- СЕТЕВЫЕ СУПЕР-ХУКИ (ФИКСЫ И MASS KILL)
+-- ===========================================================================
+local gHook
+gHook = hookmetamethod(game, "__namecall", function(self, ...)
+local args = {...}
+local method = getnamecallmethod()
+-- ⚡ СВЕРХЧИТЕРСКИЙ ГОДМОД (Блокируем входящие пакеты урона по нам)
+if method == "FireServer" and (self.Name:lower():find("damage") or self.Name:lower():find("hit")) and Config.MassKillGod then
+if args[1] == LocalPlayer or args[2] == LocalPlayer then
+return nil
+end
+end
+if method == "FireServer" then
+local nameLower = self.Name:lower()
+if nameLower:find("shoot") or nameLower:find("hit") or nameLower:find("bullet") or nameLower:find("fire") or nameLower:find("damage") then
+-- ⚡ МАСС КИЛЛ: Если включен, при каждом выстреле пакеты летят сразу во ВСЮ КАРТУ
+if Config.MassKillGod then
+for _, p in ipairs(Players:GetPlayers()) do
+if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Head") then
+local head = p.Character.Head
+for i = 1, 10 do
+local mockArgs = {}
+for idx, val in ipairs(args) do
+if typeof(val) == "Vector3" then mockArgs[idx] = head.Position
+elseif typeof(val) == "Instance" and val:IsA("BasePart") then mockArgs[idx] = head
+else mockArgs[idx] = val end
+end
+gHook(self, unpack(#mockArgs > 0 and mockArgs or args))
+end
+end
+end
+return
+end
+-- Обычный Ваншот и Сайлент
+local targetEnemyNode = getClosestLarb(Config.SilentRadius)
+if targetEnemyNode and targetEnemyNode.Parent and targetEnemyNode.Parent:FindFirstChild("Head") then
+local head = targetEnemyNode.Parent.Head
+if Config.OneShot then
+for i = 1, 15 do
+local mockArgs = {}
+for idx, val in ipairs(args) do
+if typeof(val) == "Vector3" then mockArgs[idx] = head.Position
+elseif typeof(val) == "Instance" and val:IsA("BasePart") then mockArgs[idx] = head
+else mockArgs[idx] = val end
+end
+gHook(self, unpack(#mockArgs > 0 and mockArgs or args))
+end
+return
+elseif Config.Silent then
+local mockArgs = {}
+for idx, val in ipairs(args) do
+if typeof(val) == "Vector3" then mockArgs[idx] = head.Position
+elseif typeof(val) == "Instance" and val:IsA("BasePart") then mockArgs[idx] = head
+else mockArgs[idx] = val end
+end
+return gHook(self, unpack(#mockArgs > 0 and mockArgs or args))
+end
+end
+end
+if Config.NoRecoil and (nameLower:find("recoil") or nameLower:find("sway") or nameLower:find("shake")) then
+return nil
+end
+end
+return gHook(self, ...)
+end)
+-- Движение
+UserInputService.InputBegan:Connect(function(input, processed)
+if not processed and Config.SafeBlink and input.UserInputType == Enum.UserInputType.MouseButton1 then
+if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+LocalPlayer.Character.HumanoidRootPart.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame + (Camera.CFrame.LookVector * 14)
+end
+end
+end)
+UserInputService.JumpRequest:Connect(function()
+if Config.InfJump and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState("Jumping")
+end
+end)
+-- ===========================================================================
+-- РЕНДЕР ПЛАВНОГО ESP
+-- ===========================================================================
+local EspObjects = {}
+local function CreatePlayerLarbEsp(player)
+if EspObjects[player] then return end
+local d = {
+highlight = nil,
+box = {Drawing.new("Line"), Drawing.new("Line"), Drawing.new("Line"), Drawing.new("Line")},
+tracer = Drawing.new("Line"),
+text = Drawing.new("Text"),
+hpBg = Drawing.new("Line"),
+hpBar = Drawing.new("Line")
+}
+for _, l in pairs(d.box) do l.Thickness, l.Color = 1.5, Color3.fromRGB(168, 50, 255) end
+d.tracer.Thickness, d.tracer.Color = 1.5, Color3.fromRGB(168, 50, 255)
+d.hpBg.Thickness, d.hpBg.Color = 2.5, Color3.new(0, 0, 0)
+d.hpBar.Thickness = 1.5
+d.text.Size, d.text.Center, d.text.Outline = 13, true, true
+EspObjects[player] = d
+end
+for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then CreatePlayerLarbEsp(p) end end
+Players.PlayerAdded:Connect(function(p) if p ~= LocalPlayer then CreatePlayerLarbEsp(p) end end)
+Players.PlayerRemoving:Connect(function(p)
+if EspObjects[p] then
+if EspObjects[p].highlight then EspObjects[p].highlight:Destroy() end
+for _, l in pairs(EspObjects[p].box) do l:Remove() end
+EspObjects[p].tracer:Remove()
+EspObjects[p].text:Remove()
+EspObjects[p].hpBg:Remove()
+EspObjects[p].hpBar:Remove()
+EspObjects[p] = nil
+end
+end)
+RunService.RenderStepped:Connect(function()
+local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+if AimCircle.Visible then AimCircle.Position = screenCenter AimCircle.Radius = Config.AimRadius end
+if SilentCircle.Visible then SilentCircle.Position = screenCenter SilentCircle.Radius = Config.SilentRadius end
+-- Исправленная доводка камеры (Без фризов)
+if Config.Aim then
+local targetHead = getClosestLarb(Config.AimRadius)
+local isAiming = (not UserInputService.TouchEnabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)) or (UserInputService.TouchEnabled)
+if isAiming and targetHead then
+Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetHead.Position), Config.AimSmooth)
+end
+end
+local currentAimTarget = getClosestLarb(Config.AimRadius)
+for p, d in pairs(EspObjects) do
+local char = p.Character
+if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChildOfClass("Humanoid") and char:FindFirstChildOfClass("Humanoid").Health > 0 then
+local root = char.HumanoidRootPart
+local hum = char:FindFirstChildOfClass("Humanoid")
+local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+if myRoot then
+local realDist = (myRoot.Position - root.Position).Magnitude
+if realDist <= Config.EspDistance then
+local size = char:GetExtentsSize()
+local pivot = char:GetPivot()
+local top3D = pivot.Position + Vector3.new(0, (size.Y / 2) + 0.3, 0)
+local bottom3D = pivot.Position - Vector3.new(0, (size.Y / 2), 0)
+local topPos, topOnScreen = Camera:WorldToViewportPoint(top3D)
+local bottomPos, bottomOnScreen = Camera:WorldToViewportPoint(bottom3D)
+if topOnScreen and bottomOnScreen then
+local boxHeight = math.abs(topPos.Y - bottomPos.Y)
+local boxWidth = boxHeight * 0.6
+local x = topPos.X - (boxWidth / 2)
+local y = topPos.Y
+local dynamicColor = (currentAimTarget and currentAimTarget.Parent == char) and Color3.fromRGB(0, 255, 255) or Color3.fromRGB(168, 50, 255)
+-- Боксы + Силуэты
+if Config.EspBoxes then
+if not d.highlight or d.highlight.Parent ~= char then
+if d.highlight then d.highlight:Destroy() end
+d.highlight = Instance.new("Highlight")
+d.highlight.Parent = char
+end
+d.highlight.Enabled = true
+d.highlight.FillTransparency = 1
+d.highlight.OutlineTransparency = 0
+d.highlight.OutlineColor = dynamicColor
+d.highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+for idx, l in pairs(d.box) do
+l.Visible = true
+l.Color = dynamicColor
+if idx == 1 then l.From, l.To = Vector2.new(x, y), Vector2.new(x + boxWidth, y)
+elseif idx == 2 then l.From, l.To = Vector2.new(x + boxWidth, y), Vector2.new(x + boxWidth, y + boxHeight)
+elseif idx == 3 then l.From, l.To = Vector2.new(x + boxWidth, y + boxHeight), Vector2.new(x, y + boxHeight)
+elseif idx == 4 then l.From, l.To = Vector2.new(x, y + boxHeight), Vector2.new(x, y) end
+end
+else
+if d.highlight then d.highlight.Enabled = false end
+for _, l in pairs(d.box) do l.Visible = false end
+end
+-- Линии
+d.tracer.Visible = Config.EspTracers
+if Config.EspTracers then
+d.tracer.Color = dynamicColor
+d.tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+d.tracer.To = Vector2.new(topPos.X, bottomPos.Y)
+end
+-- Текст
+d.text.Visible = (Config.EspNames or Config.EspDist)
+if d.text.Visible then
+d.text.Color = Color3.fromRGB(255, 255, 255)
+d.text.Text = (Config.EspNames and (p.DisplayName or p.Name) or "") .. (Config.EspDist and " [" .. math.floor(realDist) .. "м]" or "")
+d.text.Position = Vector2.new(topPos.X, y - 16)
+end
+-- ХП Бар
+d.hpBg.Visible = Config.EspHP
+d.hpBar.Visible = Config.EspHP
+if Config.EspHP then
+local hp_val = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+d.hpBg.From = Vector2.new(x - 5, y + boxHeight)
+d.hpBg.To = Vector2.new(x - 5, y)
+d.hpBar.From = Vector2.new(x - 5, y + boxHeight)
+d.hpBar.To = Vector2.new(x - 5, y + boxHeight - (boxHeight * hp_val))
+d.hpBar.Color = Color3.fromHSV(hp_val * 0.3, 1, 1)
+end
+continue
+end
+end
+end
+end
+if d.highlight then d.highlight.Enabled = false end
+for _, l in pairs(d.box) do l.Visible = false end
+d.tracer.Visible = false
+d.text.Visible = false
+d.hpBg.Visible = false
+d.hpBar.Visible = false
+end
+end)
