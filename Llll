@@ -1,0 +1,554 @@
+if game.CoreGui:FindFirstChild("KixdevNexusMenu") then
+    game.CoreGui.KixdevNexusMenu:Destroy()
+end
+
+local UI = Instance.new("ScreenGui")
+UI.Name = "KixdevNexusMenu"
+UI.Parent = game.CoreGui
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+
+local Config = {
+    SafeBlink = false,
+    InfJump = false,
+    
+    -- Аимбот
+    Aim = false,
+    AimRadius = 110,
+    AimDistance = 300,
+    WallCheck = true,
+    TeamCheck = false,
+    
+    -- Боевка
+    OneShot = false,  
+    NoRecoil = false, 
+    Hitbox = false,
+    
+    -- Защита от софтеров
+    AntiHitscan = false,
+    FakeLag = false,
+    
+    -- Читы
+    MassKillGod = false,
+    
+    -- Раздельные включалки ESP
+    EspBoxes = false,
+    EspNames = false,
+    EspDist = false,
+    EspHP = false,
+    EspTracers = false,
+    EspDistance = 1000,
+    
+    -- Освещение
+    AlwaysDay = false
+}
+
+local CurrentAimTarget = nil
+local AimCircle = Drawing.new("Circle")
+AimCircle.Color = Color3.fromRGB(168, 50, 255)
+AimCircle.Thickness = 1.5
+AimCircle.Filled = false
+AimCircle.Visible = false
+
+-- МОЯ СОБСТВЕННАЯ СИСТЕМА ДНЯ (Жесткий непрерывный контроль рендера)
+RunService.Heartbeat:Connect(function()
+    if Config.AlwaysDay then
+        Lighting.ClockTime = 14
+        Lighting.Brightness = 3.5
+        Lighting.FogEnd = 999999
+        Lighting.GlobalShadows = false
+        Lighting.OutdoorAmbient = Color3.fromRGB(200, 200, 200)
+        
+        -- Вырезаем кастомные ночные купола и туман из workspace, если они есть
+        local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+        if atmosphere then atmosphere.Density = 0 end
+    end
+end)
+
+local function GetPlayerCharacter(player)
+    if not player then return nil end
+    local char = player.Character or workspace:FindFirstChild(player.Name)
+    if not char and workspace:FindFirstChild("Players") then
+        char = workspace.Players:FindFirstChild(player.Name)
+    end
+    return char
+end
+
+local function GetStableCFrame(char)
+    if not char then return nil end
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("LowerTorso") or char:FindFirstChild("UpperTorso") or char.PrimaryPart
+    if root then return root.CFrame end
+    return nil
+end
+
+local function GetHealthData(char)
+    if not char then return 100, 100 end
+    if char:GetAttribute("Health") then return char:GetAttribute("Health"), char:GetAttribute("MaxHealth") or 100 end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then return hum.Health, hum.MaxHealth end
+    return 100, 100
+end
+
+local function isVisible(targetPart)
+    if not Config.WallCheck then return true end
+    local char = LocalPlayer.Character
+    if not char or not targetPart then return false end
+    
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {char, targetPart.Parent}
+    
+    local ray = workspace:Raycast(Camera.CFrame.Position, targetPart.Position - Camera.CFrame.Position, params)
+    return ray == nil
+end
+
+local function GetClosestTargetPart(maxFOV, maxDistance)
+    maxDistance = maxDistance or Config.EspDistance
+    local myChar = LocalPlayer.Character
+    local myHrp = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("LowerTorso"))
+    if not myHrp then return nil end
+    
+    local closest, shortestDist = nil, math.huge
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local players = Players:GetPlayers()
+    
+    for i = 1, #players do
+        local p = players[i]
+        if p and p ~= LocalPlayer then
+            if Config.TeamCheck and p.Team == LocalPlayer.Team then continue end
+            local char = GetPlayerCharacter(p)
+            local cf = GetStableCFrame(char)
+            local curHp, _ = GetHealthData(char)
+            
+            if cf and curHp > 0 then
+                local dist = (cf.Position - myHrp.Position).Magnitude
+                if dist <= maxDistance then
+                    local pos, onScreen = Camera:WorldToViewportPoint(cf.Position)
+                    if onScreen then
+                        local mag = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                        if mag <= maxFOV and mag < shortestDist then
+                            local aimPartObj = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+                            if aimPartObj and isVisible(aimPartObj) then
+                                shortestDist = mag
+                                closest = aimPartObj
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function IsValidTarget(part, maxFOV, maxDistance)
+    if not part or not part.Parent or not part:IsDescendantOf(workspace) then return false end
+    local char = part.Parent
+    local curHp, _ = GetHealthData(char)
+    if curHp <= 0 then return false end
+    if not isVisible(part) then return false end
+    
+    local myChar = LocalPlayer.Character
+    local myHrp = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("LowerTorso"))
+    if not myHrp then return false end
+    
+    if (part.Position - myHrp.Position).Magnitude > maxDistance then return false end
+    
+    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+    if not onScreen then return false end
+    
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    if (Vector2.new(pos.X, pos.Y) - center).Magnitude > maxFOV then return false end
+    
+    return true
+end
+
+-- ===========================================================================
+-- ИНТЕРФЕЙС МЕНЮ
+-- ===========================================================================
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 520, 0, 315)
+MainFrame.Position = UDim2.new(0.5, -260, 0.15, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(13, 10, 18)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = UI
+local MC = Instance.new("UICorner") MC.CornerRadius = UDim.new(0, 8) MC.Parent = MainFrame
+
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 38)
+TopBar.BackgroundColor3 = Color3.fromRGB(22, 16, 32)
+TopBar.BorderSizePixel = 0
+TopBar.Parent = MainFrame
+local TBC = Instance.new("UICorner") TBC.CornerRadius = UDim.new(0, 8) TBC.Parent = TopBar
+
+local NeonLine = Instance.new("Frame")
+NeonLine.Size = UDim2.new(1, 0, 0, 2)
+NeonLine.Position = UDim2.new(0, 0, 1, -2)
+NeonLine.BackgroundColor3 = Color3.fromRGB(168, 50, 255)
+NeonLine.Parent = TopBar
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -80, 1, 0)
+Title.Position = UDim2.new(0, 15, 0, 0)
+Title.Text = "🔮 KIXDEV | NEXUS PREMIUM RUST [v28.0]"
+Title.TextColor3 = Color3.fromRGB(240, 230, 255)
+Title.BackgroundTransparency = 1
+Title.TextSize = 13
+Title.Font = Enum.Font.SourceSansBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TopBar
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 35, 1, 0)
+MinBtn.Position = UDim2.new(1, -70, 0, 0)
+MinBtn.Text = "—"
+MinBtn.TextColor3 = Color3.fromRGB(180, 170, 200)
+MinBtn.BackgroundTransparency = 1
+MinBtn.TextSize = 16
+MinBtn.Font = Enum.Font.SourceSansBold
+MinBtn.Parent = TopBar
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 35, 1, 0)
+CloseBtn.Position = UDim2.new(1, -35, 0, 0)
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 75, 75)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.TextSize = 16
+CloseBtn.Font = Enum.Font.SourceSansBold
+CloseBtn.Parent = TopBar
+CloseBtn.MouseButton1Click:Connect(function() AimCircle:Remove() UI:Destroy() end)
+
+local OpenBtn = Instance.new("TextButton")
+OpenBtn.Size = UDim2.new(0, 55, 0, 55)
+OpenBtn.Position = UDim2.new(0.02, 0, 0.2, 0)
+OpenBtn.BackgroundColor3 = Color3.fromRGB(22, 16, 32)
+OpenBtn.Text = "NEXUS"
+OpenBtn.TextColor3 = Color3.fromRGB(168, 50, 255)
+OpenBtn.Font = Enum.Font.SourceSansBold
+OpenBtn.TextSize = 11
+OpenBtn.Visible = false
+OpenBtn.Parent = UI
+local OBC = Instance.new("UICorner") OBC.CornerRadius = UDim.new(1, 0) OBC.Parent = OpenBtn
+
+MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false OpenBtn.Visible = true end)
+OpenBtn.MouseButton1Click:Connect(function() MainFrame.Visible = true OpenBtn.Visible = false end)
+
+local Sidebar = Instance.new("Frame")
+Sidebar.Size = UDim2.new(0, 125, 1, -38)
+Sidebar.Position = UDim2.new(0, 0, 0, 38)
+Sidebar.BackgroundColor3 = Color3.fromRGB(16, 12, 22)
+Sidebar.Parent = MainFrame
+local SBL = Instance.new("UIListLayout") SBL.Padding = UDim.new(0, 2) SBL.Parent = Sidebar
+
+local Container = Instance.new("Frame")
+Container.Size = UDim2.new(1, -135, 1, -45)
+Container.Position = UDim2.new(0, 130, 0, 42)
+Container.BackgroundTransparency = 1
+Container.Parent = MainFrame
+
+local Pages = {}
+local CurrentPage = nil
+
+local function CreateTab(name)
+    local tabBtn = Instance.new("TextButton")
+    tabBtn.Size = UDim2.new(1, 0, 0, 38)
+    tabBtn.BackgroundColor3 = Color3.fromRGB(16, 12, 22)
+    tabBtn.TextColor3 = Color3.fromRGB(140, 130, 160)
+    tabBtn.Text = "  ❖ " .. name
+    tabBtn.Font = Enum.Font.SourceSansSemibold
+    tabBtn.TextSize = 13
+    tabBtn.TextXAlignment = Enum.TextXAlignment.Left
+    tabBtn.BorderSizePixel = 0
+    tabBtn.Parent = Sidebar
+
+    local scrollPage = Instance.new("ScrollingFrame")
+    scrollPage.Size = UDim2.new(1, 0, 1, 0)
+    scrollPage.BackgroundTransparency = 1
+    scrollPage.CanvasSize = UDim2.new(0, 0, 0, 500)
+    scrollPage.ScrollBarThickness = 2
+if game.CoreGui:FindFirstChild("KixdevNexusMenu") then
+    game.CoreGui.KixdevNexusMenu:Destroy()
+end
+
+local UI = Instance.new("ScreenGui")
+UI.Name = "KixdevNexusMenu"
+UI.Parent = game.CoreGui
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+
+local Config = {
+    SafeBlink = false,
+    InfJump = false,
+    
+    -- Аимбот
+    Aim = false,
+    AimRadius = 110,
+    AimDistance = 300,
+    WallCheck = true,
+    TeamCheck = false,
+    
+    -- Боевка
+    OneShot = false,  
+    NoRecoil = false, -- Лазерный режим без провалов под карту
+    Hitbox = false,
+    
+    -- Защита от софтеров
+    AntiHitscan = false,
+    FakeLag = false,
+    
+    -- Читы
+    MassKillGod = false,
+    
+    -- Раздельные включалки ESP
+    EspBoxes = false,
+    EspNames = false,
+    EspDist = false,
+    EspHP = false,
+    EspTracers = false,
+    EspDistance = 1000,
+    
+    -- Освещение
+    AlwaysDay = false
+}
+
+local OriginalLighting = {
+    ClockTime = Lighting.ClockTime,
+    Brightness = Lighting.Brightness,
+    OutdoorAmbient = Lighting.OutdoorAmbient,
+    GlobalShadows = Lighting.GlobalShadows
+}
+
+local CurrentAimTarget = nil
+local AimCircle = Drawing.new("Circle")
+AimCircle.Color = Color3.fromRGB(168, 50, 255)
+AimCircle.Thickness = 1.5
+AimCircle.Filled = false
+AimCircle.Visible = false
+
+local function GetPlayerCharacter(player)
+    if not player then return nil end
+    local char = player.Character or workspace:FindFirstChild(player.Name)
+    if not char and workspace:FindFirstChild("Players") then
+        char = workspace.Players:FindFirstChild(player.Name)
+    end
+    return char
+end
+
+local function GetStableCFrame(char)
+    if not char then return nil end
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("LowerTorso") or char:FindFirstChild("UpperTorso") or char.PrimaryPart
+    if root then return root.CFrame end
+    return nil
+end
+
+local function GetHealthData(char)
+    if not char then return 100, 100 end
+    if char:GetAttribute("Health") then return char:GetAttribute("Health"), char:GetAttribute("MaxHealth") or 100 end
+    if char:FindFirstChild("Health") and char.Health:IsA("ValueBase") then return char.Health.Value, 100 end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then return hum.Health, hum.MaxHealth end
+    return 100, 100
+end
+
+local function isVisible(targetPart)
+    if not Config.WallCheck then return true end
+    local char = LocalPlayer.Character
+    if not char or not targetPart then return false end
+    
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {char, targetPart.Parent}
+    
+    local origin = Camera.CFrame.Position
+    local direction = targetPart.Position - origin
+    
+    local ray = workspace:Raycast(origin, direction, params)
+    return ray == nil
+end
+
+local function GetClosestTargetPart(maxFOV, maxDistance)
+    maxDistance = maxDistance or Config.EspDistance
+    local myChar = LocalPlayer.Character or workspace:FindFirstChild(LocalPlayer.Name)
+    local myHrp = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("LowerTorso"))
+    if not myHrp then return nil end
+    
+    local closest, shortestDist = nil, math.huge
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local players = Players:GetPlayers()
+    
+    for i = 1, #players do
+        local p = players[i]
+        if p and p ~= LocalPlayer then
+            if Config.TeamCheck and p.Team == LocalPlayer.Team then continue end
+            local char = GetPlayerCharacter(p)
+            local cf = GetStableCFrame(char)
+            local curHp, _ = GetHealthData(char)
+            
+            if cf and curHp > 0 then
+                local dist = (cf.Position - myHrp.Position).Magnitude
+                if dist <= maxDistance and dist <= Config.EspDistance then
+                    local pos, onScreen = Camera:WorldToViewportPoint(cf.Position)
+                    if onScreen then
+                        local mag = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                        if mag <= maxFOV and mag < shortestDist then
+                            local aimPartObj = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+                            if aimPartObj and isVisible(aimPartObj) then
+                                shortestDist = mag
+                                closest = aimPartObj
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function IsValidTarget(part, maxFOV, maxDistance)
+    if not part or not part.Parent or not part:IsDescendantOf(workspace) then return false end
+    local char = part.Parent
+    local curHp, _ = GetHealthData(char)
+    if curHp <= 0 then return false end
+    if not isVisible(part) then return false end
+    
+    local myChar = LocalPlayer.Character or workspace:FindFirstChild(LocalPlayer.Name)
+    local myHrp = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("LowerTorso"))
+    if not myHrp then return false end
+    
+    local dist = (part.Position - myHrp.Position).Magnitude
+    if dist > maxDistance then return false end
+    
+    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+    if not onScreen then return false end
+    
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local mag = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+    if mag > maxFOV then return false end
+    
+    return true
+end
+
+-- ===========================================================================
+-- ИНТЕРФЕЙС МЕНЮ
+-- ===========================================================================
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 520, 0, 315)
+MainFrame.Position = UDim2.new(0.5, -260, 0.15, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(13, 10, 18)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = UI
+local MC = Instance.new("UICorner") MC.CornerRadius = UDim.new(0, 8) MC.Parent = MainFrame
+
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 38)
+TopBar.BackgroundColor3 = Color3.fromRGB(22, 16, 32)
+TopBar.BorderSizePixel = 0
+TopBar.Parent = MainFrame
+local TBC = Instance.new("UICorner") TBC.CornerRadius = UDim.new(0, 8) TBC.Parent = TopBar
+
+local NeonLine = Instance.new("Frame")
+NeonLine.Size = UDim2.new(1, 0, 0, 2)
+NeonLine.Position = UDim2.new(0, 0, 1, -2)
+NeonLine.BackgroundColor3 = Color3.fromRGB(168, 50, 255)
+NeonLine.Parent = TopBar
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -80, 1, 0)
+Title.Position = UDim2.new(0, 15, 0, 0)
+Title.Text = "🔮 KIXDEV | NEXUS PREMIUM RUST [v27.0]"
+Title.TextColor3 = Color3.fromRGB(240, 230, 255)
+Title.BackgroundTransparency = 1
+Title.TextSize = 13
+Title.Font = Enum.Font.SourceSansBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TopBar
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 35, 1, 0)
+MinBtn.Position = UDim2.new(1, -70, 0, 0)
+MinBtn.Text = "—"
+MinBtn.TextColor3 = Color3.fromRGB(180, 170, 200)
+MinBtn.BackgroundTransparency = 1
+MinBtn.TextSize = 16
+MinBtn.Font = Enum.Font.SourceSansBold
+MinBtn.Parent = TopBar
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 35, 1, 0)
+CloseBtn.Position = UDim2.new(1, -35, 0, 0)
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 75, 75)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.TextSize = 16
+CloseBtn.Font = Enum.Font.SourceSansBold
+CloseBtn.Parent = TopBar
+CloseBtn.MouseButton1Click:Connect(function() 
+    AimCircle:Remove()
+    UI:Destroy() 
+end)
+
+local OpenBtn = Instance.new("TextButton")
+OpenBtn.Size = UDim2.new(0, 55, 0, 55)
+OpenBtn.Position = UDim2.new(0.02, 0, 0.2, 0)
+OpenBtn.BackgroundColor3 = Color3.fromRGB(22, 16, 32)
+OpenBtn.Text = "NEXUS"
+OpenBtn.TextColor3 = Color3.fromRGB(168, 50, 255)
+OpenBtn.Font = Enum.Font.SourceSansBold
+OpenBtn.TextSize = 11
+OpenBtn.Visible = false
+OpenBtn.Parent = UI
+local OBC = Instance.new("UICorner") OBC.CornerRadius = UDim.new(1, 0) OBC.Parent = OpenBtn
+
+MinBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false OpenBtn.Visible = true end)
+OpenBtn.MouseButton1Click:Connect(function() MainFrame.Visible = true OpenBtn.Visible = false end)
+
+local Sidebar = Instance.new("Frame")
+Sidebar.Size = UDim2.new(0, 125, 1, -38)
+Sidebar.Position = UDim2.new(0, 0, 0, 38)
+Sidebar.BackgroundColor3 = Color3.fromRGB(16, 12, 22)
+Sidebar.Parent = MainFrame
+local SBL = Instance.new("UIListLayout") SBL.Padding = UDim.new(0, 2) SBL.Parent = Sidebar
+
+local Container = Instance.new("Frame")
+Container.Size = UDim2.new(1, -135, 1, -45)
+Container.Position = UDim2.new(0, 130, 0, 42)
+Container.BackgroundTransparency = 1
+Container.Parent = MainFrame
+
+local Pages = {}
+local CurrentPage = nil
+
+local function CreateTab(name)
+    local tabBtn = Instance.new("TextButton")
+    tabBtn.Size = UDim2.new(1, 0, 0, 38)
+    tabBtn.BackgroundColor3 = Color3.fromRGB(16, 12, 22)
+    tabBtn.TextColor3 = Color3.fromRGB(140, 130, 160)
+    tabBtn.Text = "  ❖ " .. name
+    tabBtn.Font = Enum.Font.SourceSansSemibold
+    tabBtn.TextSize = 13
+    tabBtn.TextXAlignment = Enum.TextXAlignment.Left
+    tabBtn.BorderSizePixel = 0
+    tabBtn.Parent = Sidebar
+
+    local scrollPage = Instance.new("ScrollingFrame")
+    scrollPage.Size = UDim2.new(1, 0, 1, 0)
+    scrollPage.BackgroundTransparency = 1
+    scrollPage.CanvasSize = UDim2.new(0, 0, 0, 500)
+    scrollPage.ScrollBarThickness = 2
+    scrollPage.ScrollBarImageColor3 = Color3.fromRGB(168, 50, 255)
