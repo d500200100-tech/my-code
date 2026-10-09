@@ -1,0 +1,517 @@
+if game.CoreGui:FindFirstChild("KixdevNexusMenu") then
+    game.CoreGui.KixdevNexusMenu:Destroy()
+end
+
+-- Загрузка официальной библиотеки Fluent UI, которую ты скинул
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+
+local Config = {
+    SafeBlink = false,
+    InfJump = false,
+    
+    -- Аимбот
+    Aim = false,
+    AimRadius = 110,
+    AimDistance = 300,
+    ArrowDistance = 400, 
+    WallCheck = true,
+    TeamCheck = false,
+    
+    -- Боевка
+    OneShot = false,  
+    NoRecoil = false, 
+    Hitbox = false,
+    
+    -- Защита от софтеров
+    AntiHitscan = false,
+    FakeLag = false,
+    AdminRadar = false,
+    
+    -- Раздельные включалки ESP
+    EspBoxes = false,
+    EspNames = false,
+    EspDist = false,
+    EspHP = false,
+    EspTracers = false,
+    EspDistance = 15000, 
+    
+    -- Освещение
+    AlwaysDay = false
+}
+
+local OriginalLighting = {
+    ClockTime = Lighting.ClockTime,
+    Brightness = Lighting.Brightness,
+    OutdoorAmbient = Lighting.OutdoorAmbient,
+    GlobalShadows = Lighting.GlobalShadows
+}
+
+local CurrentAimTarget = nil
+local AimCircle = Drawing.new("Circle")
+AimCircle.Color = Color3.fromRGB(168, 50, 255)
+AimCircle.Thickness = 1.5
+AimCircle.Filled = false
+AimCircle.Visible = false
+
+local AdminWarningText = Drawing.new("Text")
+AdminWarningText.Size = 24
+AdminWarningText.Center = true
+AdminWarningText.Outline = true
+AdminWarningText.Color = Color3.fromRGB(255, 30, 30)
+AdminWarningText.Position = Vector2.new(Camera.ViewportSize.X / 2, 80)
+AdminWarningText.Visible = false
+
+local IndicatorArrows = {}
+for i = 1, 8 do 
+    local triangle = Drawing.new("Triangle")
+    triangle.Thickness = 1
+    triangle.Filled = true 
+    triangle.Color = Color3.fromRGB(168, 50, 255)
+    triangle.Visible = false
+    table.insert(IndicatorArrows, triangle)
+end
+
+-- СИСТЕМА ВЕЧНОГО ДНЯ
+RunService.Heartbeat:Connect(function()
+    if Config.AlwaysDay then
+        Lighting.ClockTime = 14
+        Lighting.Brightness = 3.5
+        Lighting.FogEnd = 999999
+        Lighting.GlobalShadows = false
+        Lighting.OutdoorAmbient = Color3.fromRGB(200, 200, 200)
+        
+        local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+        if atmosphere then atmosphere.Density = 0 end
+    end
+end)
+
+local function GetPlayerCharacter(player)
+    if not player then return nil end
+    local char = player.Character or workspace:FindFirstChild(player.Name)
+    if not char and workspace:FindFirstChild("Players") then
+        char = workspace.Players:FindFirstChild(player.Name)
+    end
+    return char
+end
+
+local function GetStableCFrame(char)
+    if not char then return nil end
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("LowerTorso") or char:FindFirstChild("UpperTorso") or char.PrimaryPart
+    if root then return root.CFrame end
+    return nil
+end
+
+local function GetHealthData(char)
+    if not char then return 100, 100 end
+    if char:GetAttribute("Health") then return char:GetAttribute("Health"), char:GetAttribute("MaxHealth") or 100 end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then return hum.Health, hum.MaxHealth end
+    return 100, 100
+end
+
+local function isVisible(targetPart)
+    if not Config.WallCheck then return true end
+    local char = LocalPlayer.Character
+    if not char or not targetPart then return false end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {char, targetPart.Parent}
+    local ray = workspace:Raycast(Camera.CFrame.Position, targetPart.Position - Camera.CFrame.Position, params)
+    return ray == nil
+end
+
+local function GetClosestTargetPart(maxFOV, maxDistance)
+    maxDistance = maxDistance or Config.EspDistance
+    local myChar = LocalPlayer.Character
+    local myHrp = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("LowerTorso"))
+    if not myHrp then return nil end
+    
+    local closest, shortestDist = nil, math.huge
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local players = Players:GetPlayers()
+    
+    for i = 1, #players do
+        local p = players[i]
+        if p and p ~= LocalPlayer then
+            if Config.TeamCheck and p.Team == LocalPlayer.Team then continue end
+            local char = GetPlayerCharacter(p)
+            local cf = GetStableCFrame(char)
+            local curHp, _ = GetHealthData(char)
+            
+            if cf and curHp > 0 then
+                local dist = (cf.Position - myHrp.Position).Magnitude
+                if dist <= maxDistance then
+                    local pos, onScreen = Camera:WorldToViewportPoint(cf.Position)
+                    if onScreen then
+                        local mag = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                        if mag <= maxFOV and mag < shortestDist then
+                            local aimPartObj = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+                            if aimPartObj and isVisible(aimPartObj) then
+                                shortestDist = mag
+                                closest = aimPartObj
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function IsValidTarget(part, maxFOV, maxDistance)
+    if not part or not part.Parent or not part:IsDescendantOf(workspace) then return false end
+    local char = part.Parent
+    local curHp, _ = GetHealthData(char)
+    if curHp <= 0 then return false end
+    if not isVisible(part) then return false end
+    local myChar = LocalPlayer.Character
+    local myHrp = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("LowerTorso"))
+    if not myHrp then return false end
+    if (part.Position - myHrp.Position).Magnitude > maxDistance then return false end
+    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+    if not onScreen then return false end
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    if (Vector2.new(pos.X, pos.Y) - center).Magnitude > maxFOV then return false end
+    return true
+end
+
+-- ===========================================================================
+-- СТРУКТУРА ИНИЦИАЛИЗАЦИИ ОКНА И ВКЛАДОК FLUENT UI
+-- ===========================================================================
+local Window = Fluent:CreateWindow({
+    Title = "🔮 KIXDEV HUB | NEXUS RUST",
+    SubTitle = "v34.0 | Fluent Edition",
+    TabWidth = 140,
+    Size = UDim2.fromOffset(520, 380),
+    Acrylic = false, -- Отключаем размытие во избежание просадок FPS на мобилках
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+-- Создаем вкладки во Fluent стиле
+local Tabs = {
+    Home = Window:AddTab({ Title = "Home", Icon = "home" }),
+    Combat = Window:AddTab({ Title = "Combat", Icon = "crosshair" }),
+    Visuals = Window:AddTab({ Title = "Visuals", Icon = "eye" }),
+    Defense = Window:AddTab({ Title = "Defense", Icon = "shield" })
+}
+
+-- Наполнение вкладки HOME
+Tabs.Home:AddToggle("GodmodeMassKill", { Title = "⚡ GODMODE + MASS KILL", Default = false, Callback = function(v) Config.MassKillGod = v end })
+Tabs.Home:AddToggle("SafeBlink", { Title = "Безопасный Рывок (Click Blink)", Default = false, Callback = function(v) Config.SafeBlink = v end })
+Tabs.Home:AddToggle("InfJump", { Title = "Бесконечный прыжок", Default = false, Callback = function(v) Config.InfJump = v end })
+
+-- Наполнение вкладки COMBAT
+Tabs.Combat:AddToggle("Aimbot", { Title = "Жесткий Аимбот (До убийства)", Default = false, Callback = function(v) Config.Aim = v AimCircle.Visible = v if not v then CurrentAimTarget = nil end end })
+Tabs.Combat:AddSlider("AimFOV", { Title = "Радиус Аима (FOV)", Min = 10, Max = 800, Default = 110, Rounding = 0, Callback = function(v) Config.AimRadius = v end })
+Tabs.Combat:AddSlider("AimDist", { Title = "Дальность Аима (Метры)", Min = 50, Max = 5000, Default = 300, Rounding = 0, Callback = function(v) Config.AimDistance = v end })
+Tabs.Combat:AddSlider("ArrowDist", { Title = "Дистанция Стрелочек", Min = 50, Max = 5000, Default = 400, Rounding = 0, Callback = function(v) Config.ArrowDistance = v end })
+Tabs.Combat:AddToggle("WallCheck", { Title = "Проверка стен (Wall Check)", Default = true, Callback = function(v) Config.WallCheck = v end })
+Tabs.Combat:AddToggle("TeamCheck", { Title = "Проверка тимы (Team Check)", Default = false, Callback = function(v) Config.TeamCheck = v end })
+Tabs.Combat:AddToggle("OneShot", { Title = "🩸 Жесткий Ваншот (X15 Мультихит)", Default = false, Callback = function(v) Config.OneShot = v end })
+Tabs.Combat:AddToggle("NoRecoil", { Title = "💥 Лазерный Режим (No Recoil / Spread)", Default = false, Callback = function(v) Config.NoRecoil = v end })
+Tabs.Combat:AddToggle("Hitbox", { Title = "Расширенные Хитбоксы (5x5)", Default = false, Callback = function(v) Config.Hitbox = v end })
+
+-- Наполнение вкладки DEFENSE
+Tabs.Defense:AddToggle("AntiHitscan", { Title = "🛡️ Anti-Hitscan (Блок чужого софта)", Default = false, Callback = function(v) Config.AntiHitscan = v end })
+Tabs.Defense:AddToggle("FakeLag", { Title = "🛑 ФейкЛаг (Лаги на экране врага)", Default = false, Callback = function(v) Config.FakeLag = v end })
+Tabs.Defense:AddToggle("AdminRadar", { Title = "🚨 Админ-Радар (Детект инвиза)", Default = false, Callback = function(v) Config.AdminRadar = v if not v then AdminWarningText.Visible = false end end })
+
+-- Наполнение вкладки VISUALS
+Tabs.Visuals:AddToggle("EspBoxes", { Title = "Player Boxes (3D + Силуэт)", Default = false, Callback = function(v) Config.EspBoxes = v end })
+Tabs.Visuals:AddToggle("EspNames", { Title = "Name Tags (Ники врагов)", Default = false, Callback = function(v) Config.EspNames = v end })
+Tabs.Visuals:AddToggle("EspDist", { Title = "Distance Info (Дистанция)", Default = false, Callback = function(v) Config.EspDist = v end })
+Tabs.Visuals:AddToggle("EspHP", { Title = "Health Bar (Полоска жизни)", Default = false, Callback = function(v) Config.EspHP = v end })
+Tabs.Visuals:AddToggle("EspTracers", { Title = "Tracers (Линии к ногам)", Default = false, Callback = function(v) Config.EspTracers = v end })
+Tabs.Visuals:AddSlider("EspMaxDist", { Title = "Макс. Дистанция ESP", Min = 100, Max = 50000, Default = 15000, Rounding = 0, Callback = function(v) Config.EspDistance = v end })
+Tabs.Visuals:AddToggle("AlwaysDay", { Title = "☀️ Наш Вечный День (Анти-Туман)", Default = false, Callback = function(v) Config.AlwaysDay = v end })
+Window:SelectTab(1)
+-- ЦИКЛ БЛОКИРОВКИ ОТДАЧИ / РАЗБРОСА ЧЕРЕЗ АТРИБУТЫ (ТВОЙ КОД)
+RunService.Heartbeat:Connect(function()
+if Config.NoRecoil then
+local character = LocalPlayer.Character
+if character then
+for _, tool in ipairs(character:GetChildren()) do
+if tool:IsA("Tool") then
+if tool:GetAttribute("Recoil") then tool:SetAttribute("SetRecoil", 0.01) end
+if tool:GetAttribute("Spread") then tool:SetAttribute("SetSpread", 0.01) end
+for _, child in ipairs(tool:GetDescendants()) do
+if child:IsA("ValueBase") and (child.Name:match("Recoil") or child.Name:match("Spread") or child.Name:match("Inaccuracy")) then
+child.Value = 0.01
+end
+end
+end
+end
+end
+end
+end)
+-- Хитбоксы
+task.spawn(function()
+while task.wait(0.5) do
+for _, p in ipairs(Players:GetPlayers()) do
+if p ~= LocalPlayer then
+if Config.TeamCheck and p.Team == LocalPlayer.Team then continue end
+local char = GetPlayerCharacter(p)
+local hrp = char and char:FindFirstChild("HumanoidRootPart")
+if hrp then
+if Config.Hitbox then
+hrp.Size = Vector3.new(5, 5, 5)
+hrp.Transparency = 0.6
+hrp.BrickColor = BrickColor.new("Bright violet")
+hrp.CanCollide = false
+else
+hrp.Size = Vector3.new(2, 2, 1)
+hrp.Transparency = 1
+hrp.CanCollide = true
+end
+end
+end
+end
+end
+end)
+-- СКАНЕР АДМИНОВ
+task.spawn(function()
+while task.wait(1) do
+local adminFound = false
+local adminName = ""
+if Config.AdminRadar then
+for _, p in ipairs(Players:GetPlayers()) do
+if p ~= LocalPlayer then
+local role = p:GetRoleInGroup(game.CreatorId) or ""
+if p:GetAttribute("IsAdmin") == true or p:GetAttribute("Admin") == true or role:lower():find("admin") or role:lower():find("mod") or role:lower():find("staff") then
+adminFound = true
+adminName = p.Name
+break
+end
+end
+end
+if adminFound then
+AdminWarningText.Text = "⚠️ WARNING: ADMIN [" .. adminName .. "] IN GAME! ⚠️"
+AdminWarningText.Visible = true
+else
+AdminWarningText.Visible = false
+end
+else
+AdminWarningText.Visible = false
+end
+end
+end)
+-- СЕТЕВЫЕ МЕТАХУКИ (МУЛЬТИХИТ ВАНШОТ)
+local gHook
+gHook = hookmetamethod(game, "__namecall", function(self, ...)
+local args = {...}
+local method = getnamecallmethod()
+if method == "FireServer" and Config.AntiHitscan then
+if self.Name:lower():find("damage") or self.Name:lower():find("hit") then
+if args == LocalPlayer or args == LocalPlayer or args == LocalPlayer.Character then return nil end
+end
+end
+if method == "FireServer" or method == "InvokeServer" then
+local nameLower = self.Name:lower()
+if Config.NoRecoil and (nameLower:find("recoil") or nameLower:find("sway") or nameLower:find("shake") or nameLower:find("kick")) then return nil end
+if nameLower:find("shoot") or nameLower:find("hit") or nameLower:find("bullet") or nameLower:find("fire") or nameLower:find("damage") then
+if Config.OneShot then
+local target = CurrentAimTarget or GetClosestTargetPart(Config.AimRadius, Config.AimDistance)
+if target then
+local mockArgs = {}
+for idx, val in ipairs(args) do
+if typeof(val) == "Vector3" then mockArgs[idx] = target.Position
+elseif typeof(val) == "Instance" and val:IsA("BasePart") then mockArgs[idx] = target
+else mockArgs[idx] = val end
+end
+for i = 1, 15 do gHook(self, unpack(mockArgs)) end
+return gHook(self, unpack(mockArgs))
+end
+end
+end
+end
+return gHook(self, ...)
+end)
+local indexHook
+indexHook = hookmetamethod(game, "__index", function(self, key)
+if Config.NoRecoil and (key == "Recoil" or key == "RecoilControl" or key == "Sway" or key == "Kick" or key == "Shake" or key == "Spread") then return 0 end
+return indexHook(self, key)
+end)
+UserInputService.InputBegan:Connect(function(input, processed)
+if not processed and Config.SafeBlink and input.UserInputType == Enum.UserInputType.MouseButton1 then
+if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+LocalPlayer.Character.HumanoidRootPart.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame + (Camera.CFrame.LookVector * 14)
+end
+end
+end)
+UserInputService.JumpRequest:Connect(function()
+if Config.InfJump and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState("Jumping")
+end
+end)
+local EspObjects = {}
+local function CreatePlayerLarbEsp(player)
+if EspObjects[player] then return end
+local d = {
+highlight = nil,
+box = {Drawing.new("Line"), Drawing.new("Line"), Drawing.new("Line"), Drawing.new("Line")},
+tracer = Drawing.new("Line"),
+text = Drawing.new("Text"),
+hpBg = Drawing.new("Line"),
+hpBar = Drawing.new("Line")
+}
+for _, l in pairs(d.box) do l.Thickness, l.Color = 1.5, Color3.fromRGB(168, 50, 255) end
+d.tracer.Thickness, d.tracer.Color = 1.5, Color3.fromRGB(168, 50, 255)
+d.hpBg.Thickness, d.hpBg.Color = 2.5, Color3.new(0, 0, 0)
+d.hpBar.Thickness = 1.5
+d.text.Size, d.text.Center, d.text.Outline = 13, true, true
+EspObjects[player] = d
+end
+for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then CreatePlayerLarbEsp(p) end end
+Players.PlayerAdded:Connect(function(p) if p ~= LocalPlayer then CreatePlayerLarbEsp(p) end end)
+Players.PlayerRemoving:Connect(function(p)
+if EspObjects[p] then
+if EspObjects[p].highlight then pcall(function() EspObjects[p].highlight:Destroy() end) end
+for _, l in pairs(EspObjects[p].box) do l:Remove() end
+EspObjects[p].tracer:Remove()
+EspObjects[p].text:Remove()
+EspObjects[p].hpBg:Remove()
+EspObjects[p].hpBar:Remove()
+EspObjects[p] = nil
+end
+end)
+-- ===========================================================================
+-- ГЛАВНЫЙ ПОТОК РЕНДЕРА И СТРЕЛОЧЕК НА КРУГЕ FOV
+-- ===========================================================================
+RunService.RenderStepped:Connect(function()
+local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+if AimCircle.Visible then AimCircle.Position = screenCenter AimCircle.Radius = Config.AimRadius end
+if Config.Aim then
+if CurrentAimTarget and IsValidTarget(CurrentAimTarget, Config.AimRadius, Config.AimDistance) then
+Camera.CFrame = CFrame.new(Camera.CFrame.Position, CurrentAimTarget.Position)
+else
+CurrentAimTarget = GetClosestTargetPart(Config.AimRadius, Config.AimDistance)
+if CurrentAimTarget then Camera.CFrame = CFrame.new(Camera.CFrame.Position, CurrentAimTarget.Position) end
+end
+else
+CurrentAimTarget = nil
+end
+for _, tri in pairs(IndicatorArrows) do tri.Visible = false end
+local offScreenTargets = {}
+local arrowIndex = 1
+for p, d in pairs(EspObjects) do
+local char = p and GetPlayerCharacter(p)
+local isRendered = false
+local rootPart = char and char:FindFirstChild("HumanoidRootPart")
+local myChar = LocalPlayer.Character
+local myHrp = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("LowerTorso"))
+if myHrp and p.Character then
+local targetPos = rootPart and rootPart.Position or p.Character:GetPivot().Position
+local realDist = (targetPos - myHrp.Position).Magnitude
+if realDist <= Config.EspDistance then
+local pos2D, onScreen = Camera:WorldToViewportPoint(targetPos)
+if onScreen then
+local size = char and char:GetExtentsSize() or Vector3.new(4, 5, 2)
+local pivot = char and char:GetPivot() or CFrame.new(targetPos)
+local topPos, topOnScreen = Camera:WorldToViewportPoint(pivot.Position + Vector3.new(0, (size.Y / 2) + 0.3, 0))
+local bottomPos, bottomOnScreen = Camera:WorldToViewportPoint(pivot.Position - Vector3.new(0, (size.Y / 2), 0))
+if topOnScreen and bottomOnScreen then
+local boxHeight = math.abs(topPos.Y - bottomPos.Y)
+local boxWidth = boxHeight * 0.6
+local x = topPos.X - (boxWidth / 2)
+local y = topPos.Y
+local dynamicColor = Color3.fromRGB(168, 50, 255)
+local curHp, maxHp = GetHealthData(char)
+if Config.EspBoxes then
+if not d.highlight or d.highlight.Parent ~= char then
+pcall(function() if d.highlight then d.highlight:Destroy() end end)
+if char then
+d.highlight = Instance.new("Highlight")
+d.highlight.Parent = char
+end
+end
+if d.highlight then
+d.highlight.Enabled = true
+d.highlight.FillTransparency = 1
+d.highlight.OutlineTransparency = 0
+d.highlight.OutlineColor = dynamicColor
+d.highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+end
+for idx, l in pairs(d.box) do
+l.Visible = true
+l.Color = dynamicColor
+if idx == 1 then l.From, l.To = Vector2.new(x, y), Vector2.new(x + boxWidth, y)
+elseif idx == 2 then l.From, l.To = Vector2.new(x + boxWidth, y), Vector2.new(x + boxWidth, y + boxHeight)
+elseif idx == 3 then l.From, l.To = Vector2.new(x + boxWidth, y + boxHeight), Vector2.new(x, y + boxHeight)
+elseif idx == 4 then l.From, l.To = Vector2.new(x + boxWidth, y + boxHeight), Vector2.new(x, y) end
+end
+else
+if d.highlight then d.highlight.Enabled = false end
+for _, l in pairs(d.box) do l.Visible = false end
+end
+d.tracer.Visible = Config.EspTracers
+if Config.EspTracers then
+d.tracer.Color = dynamicColor
+d.tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+d.tracer.To = Vector2.new(topPos.X, bottomPos.Y)
+end
+d.text.Visible = (Config.EspNames or Config.EspDist)
+if d.text.Visible then
+d.text.Color = Color3.fromRGB(255, 255, 255)
+d.text.Text = (Config.EspNames and (p.DisplayName or p.Name) or "") .. (Config.EspDist and " [" .. math.floor(realDist) .. "м]" or "")
+d.text.Position = Vector2.new(topPos.X, y - 16)
+end
+d.hpBg.Visible = Config.EspHP
+d.hpBar.Visible = Config.EspHP
+if Config.EspHP then
+local hp_val = math.clamp(curHp / maxHp, 0, 1)
+d.hpBg.From = Vector2.new(x - 5, y + boxHeight)
+d.hpBg.To = Vector2.new(x - 5, y)
+d.hpBar.From = Vector2.new(x - 5, y + boxHeight)
+d.hpBar.To = Vector2.new(x - 5, y + boxHeight - (boxHeight * hp_val))
+d.hpBar.Color = Color3.fromHSV(hp_val * 0.3, 1, 1)
+end
+isRendered = true
+end
+else
+if Config.Aim and realDist <= Config.ArrowDistance then
+table.insert(offScreenTargets, {pos = targetPos, dist = realDist})
+end
+end
+end
+end
+if not isRendered then
+if d.highlight then d.highlight.Enabled = false end
+for _, l in pairs(d.box) do l.Visible = false end
+d.tracer.Visible = false
+d.text.Visible = false
+d.hpBg.Visible = false
+d.hpBar.Visible = false
+end
+end
+-- СТРЕЛОЧКИ КРУПНЫЕ ЗАПОЛНЕННЫЕ НА КРУГЕ FOV
+if Config.Aim and #offScreenTargets > 0 then
+table.sort(offScreenTargets, function(a, b) return a.dist < b.dist end)
+for i = 1, math.min(#offScreenTargets, #IndicatorArrows) do
+local targetData = offScreenTargets[i]
+local tri = IndicatorArrows[arrowIndex]
+local camCFrame = Camera.CFrame
+local relativePos = camCFrame:PointToObjectSpace(targetData.pos)
+local angle = math.atan2(relativePos.X, -relativePos.Z)
+local drawRadius = Config.AimRadius
+local pTip = screenCenter + Vector2.new(math.sin(angle), math.cos(angle)) * drawRadius
+local pLeft = screenCenter + Vector2.new(math.sin(angle - 0.18), math.cos(angle - 0.18)) * (drawRadius - 22)
+local pRight = screenCenter + Vector2.new(math.sin(angle + 0.18), math.cos(angle + 0.18)) * (drawRadius - 22)
+local arrowColor = Color3.fromRGB(168, 50, 255):Lerp(Color3.fromRGB(255, 0, 80), math.clamp(1 - (targetData.dist / Config.ArrowDistance), 0, 1))
+tri.Visible = true
+tri.Color = arrowColor
+tri.PointA = pTip
+tri.PointB = pLeft
+tri.PointC = pRight
+arrowIndex = arrowIndex + 1
+end
+end
+end)
