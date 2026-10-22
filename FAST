@@ -1,0 +1,220 @@
+-- ============================================================
+-- FAST SURVIVAL HACK (AIM + ESP + FLOATING BUTTON)
+-- ============================================================
+
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local Config = {
+    Aim = false, AimRadius = 150, AimDistance = 500,
+    TeamCheck = false, AimTargetPart = "Head",
+    EspBoxes = false, EspNames = false, EspDistance = 3000
+}
+
+local AimCircle = Drawing.new("Circle")
+AimCircle.Color = Color3.fromRGB(255, 100, 0); AimCircle.Thickness = 1.5
+AimCircle.Filled = false; AimCircle.Visible = false
+
+local function GetAimPart(char)
+    if not char then return nil end
+    if Config.AimTargetPart == "Head" then return char:FindFirstChild("Head")
+    else return char:FindFirstChild("HumanoidRootPart") end
+end
+
+-- Поиск цели без проверок на PvP зону
+local function GetClosestTarget(maxFOV, maxDist)
+    maxDist = maxDist or Config.EspDistance
+    local myH = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myH then return nil end
+    local best, bd = nil, math.huge
+    local c = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local myPos = myH.Position
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and not (Config.TeamCheck and p.Team == LocalPlayer.Team) then
+            local char = p.Character
+            if char then
+                local h = char:FindFirstChild("HumanoidRootPart")
+                if h then
+                    local d = (h.Position - myPos).Magnitude
+                    if d <= maxDist then
+                        local pos, onS = Camera:WorldToViewportPoint(h.Position)
+                        if onS then
+                            local mag = (Vector2.new(pos.X, pos.Y) - c).Magnitude
+                            if mag <= maxFOV and mag < bd then
+                                local ap = GetAimPart(char)
+                                if ap then bd = mag; best = ap end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local Window = WindUI:CreateWindow({
+    Title = "FAST SURVIVAL HACK",
+    Author = "NEXUS",
+    Folder = "FastSurvival",
+    Theme = "Dark",
+    Size = UDim2.fromOffset(400, 300),
+})
+Window:SetToggleKey(Enum.KeyCode.RightShift)
+
+local MainTab = Window:Tab({ Title = "Aim & ESP", Icon = "crosshair" })
+
+MainTab:Toggle({ Title = "🎯 Аимбот", Value = false, Callback = function(s) Config.Aim = s; AimCircle.Visible = s end })
+MainTab:Dropdown({ Title = "Куда целиться", Values = { "Head", "HumanoidRootPart" }, Value = "Head", Callback = function(v) Config.AimTargetPart = v end })
+MainTab:Slider({ Title = "FOV (Радиус)", Value = { Min = 10, Max = 800, Default = 150 }, Callback = function(v) Config.AimRadius = v end })
+MainTab:Toggle({ Title = "Проверка тимы", Value = false, Callback = function(s) Config.TeamCheck = s end })
+MainTab:Toggle({ Title = "Player Boxes", Value = false, Callback = function(s) Config.EspBoxes = s end })
+MainTab:Toggle({ Title = "Name Tags", Value = false, Callback = function(s) Config.EspNames = s end })
+
+-- ============================================================
+-- ПЛАВАЮЩАЯ КНОПКА
+-- ============================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AimToggleGui"
+ScreenGui.Parent = game:GetService("CoreGui")
+ScreenGui.ResetOnSpawn = false
+
+local AimBtn = Instance.new("TextButton")
+AimBtn.Size = UDim2.new(0, 60, 0, 60)
+AimBtn.Position = UDim2.new(0, 20, 0.5, 0)
+AimBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+AimBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+AimBtn.Font = Enum.Font.GothamBold
+AimBtn.TextSize = 14
+AimBtn.Text = "AIM\nOFF"
+AimBtn.Parent = ScreenGui
+AimBtn.Active = true
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 30)
+UICorner.Parent = AimBtn
+
+local dragging = false
+local dragInput, dragStart, startPos
+
+AimBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = AimBtn.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
+
+AimBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        AimBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+local isAimOn = false
+AimBtn.MouseButton1Click:Connect(function()
+    isAimOn = not isAimOn
+    Config.Aim = isAimOn
+    AimCircle.Visible = isAimOn
+    if isAimOn then
+        AimBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        AimBtn.Text = "AIM\nON"
+    else
+        AimBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+        AimBtn.Text = "AIM\nOFF"
+    end
+end)
+
+-- ============================================================
+-- ОТРИСОВКА ESP
+-- ============================================================
+local PlayerESP = {}
+
+RunService.RenderStepped:Connect(function()
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local myPos = myHrp and myHrp.Position or Vector3.zero
+    local vpSize = Camera.ViewportSize
+    local screenCenter = Vector2.new(vpSize.X / 2, vpSize.Y / 2)
+
+    if AimCircle.Visible then
+        AimCircle.Position = screenCenter
+        AimCircle.Radius = Config.AimRadius
+    end
+
+    if Config.Aim then
+        local t = GetClosestTarget(Config.AimRadius, Config.AimDistance)
+        if t then Camera.CFrame = CFrame.new(Camera.CFrame.Position, t.Position) end
+    end
+
+    for player, _ in pairs(PlayerESP) do
+        if not player.Parent or not player.Character then
+            for _, l in pairs(PlayerESP[player].box) do l:Remove() end
+            PlayerESP[player].text:Remove()
+            PlayerESP[player] = nil
+        end
+    end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and not PlayerESP[p] then
+            local d = { box = {}, text = Drawing.new("Text") }
+            for i=1,4 do local l = Drawing.new("Line"); l.Color = Color3.fromRGB(255, 50, 50); l.Thickness = 1.5; table.insert(d.box, l) end
+            d.text.Size = 13; d.text.Center = true; d.text.Outline = true; d.text.Color = Color3.fromRGB(255, 255, 255)
+            PlayerESP[p] = d
+        end
+    end
+    for p, d in pairs(PlayerESP) do
+        local isR = false
+        if myHrp and p.Character then
+            local char = p.Character
+            local head = char:FindFirstChild("Head")
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if head and hrp then
+                local dist = (hrp.Position - myPos).Magnitude
+                if dist <= Config.EspDistance then 
+                    local tp, on1 = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+                    local bp, on2 = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0,2,0))
+                    if on1 and on2 then
+                        local h = math.abs(tp.Y - bp.Y); local w = h * 0.6
+                        local x = tp.X - (w/2); local y = tp.Y
+                        
+                        if Config.EspBoxes then
+                            d.box[1].From = Vector2.new(x, y); d.box[1].To = Vector2.new(x+w, y)
+                            d.box[2].From = Vector2.new(x+w, y); d.box[2].To = Vector2.new(x+w, y+h)
+                            d.box[3].From = Vector2.new(x+w, y+h); d.box[3].To = Vector2.new(x, y+h)
+                            d.box[4].From = Vector2.new(x, y+h); d.box[4].To = Vector2.new(x, y)
+                            for _, l in pairs(d.box) do l.Visible = true end
+                        else
+                            for _, l in pairs(d.box) do l.Visible = false end
+                        end
+                        
+                        d.text.Visible = Config.EspNames
+                        if Config.EspNames then
+                            d.text.Text = p.Name .. " [" .. math.floor(dist) .. "m]"
+                            d.text.Position = Vector2.new(tp.X, y - 16)
+                        end
+                        isR = true
+                    end
+                end
+            end
+        end
+        if not isR then 
+            for _, l in pairs(d.box) do l.Visible = false end
+            d.text.Visible = false 
+        end
+    end
+end)
+
+WindUI:Notify({ Title = "FAST SURVIVAL", Content = "Скрипт + Плавающая кнопка загружены!", Duration = 5 })
