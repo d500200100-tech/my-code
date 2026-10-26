@@ -1,0 +1,299 @@
+-- ============================================================
+-- PROJECT DELTA HACK (v2.0 | AIM + ESP + BOTS + DAY)
+-- ============================================================
+
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+
+local Config = {
+    Aim = false, AimRadius = 150, AimDistance = 500,
+    AimTargetPart = "Head",
+    EspBoxes = false, EspNames = false, EspDistance = 3000,
+    
+    -- ДЛЯ БОТОВ
+    BotAim = false, BotAimRadius = 200, BotAimDistance = 500,
+    BotEspBoxes = false, BotEspNames = false, BotEspDistance = 1000,
+    
+    -- ВЕЧНЫЙ ДЕНЬ
+    AlwaysDay = false
+}
+
+local AimCircle = Drawing.new("Circle")
+AimCircle.Color = Color3.fromRGB(255, 100, 0); AimCircle.Thickness = 1.5
+AimCircle.Filled = false; AimCircle.Visible = false
+
+local BotAimCircle = Drawing.new("Circle")
+BotAimCircle.Color = Color3.fromRGB(0, 255, 0); BotAimCircle.Thickness = 1.5
+BotAimCircle.Filled = false; BotAimCircle.Visible = false
+
+local function GetAimPart(char)
+    if not char then return nil end
+    if Config.AimTargetPart == "Head" then return char:FindFirstChild("Head")
+    else return char:FindFirstChild("HumanoidRootPart") end
+end
+
+-- Поиск игроков
+local function GetClosestTarget(maxFOV, maxDist)
+    maxDist = maxDist or Config.EspDistance
+    local myH = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myH then return nil end
+    local best, bd = nil, math.huge
+    local c = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local myPos = myH.Position
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            local char = p.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if char and hum and hum.Health > 0 then
+                local h = char:FindFirstChild("HumanoidRootPart")
+                if h then
+                    local d = (h.Position - myPos).Magnitude
+                    if d <= maxDist then
+                        local pos, onS = Camera:WorldToViewportPoint(h.Position)
+                        if onS then
+                            local mag = (Vector2.new(pos.X, pos.Y) - c).Magnitude
+                            if mag <= maxFOV and mag < bd then
+                                local ap = GetAimPart(char)
+                                if ap then bd = mag; best = ap end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- Поиск ботов
+local BotsCache = {}
+local function IsPlayerChar(m) 
+    return Players:GetPlayerFromCharacter(m) ~= nil or string.find(string.lower(m.Name), "sleeper")
+end
+
+local function RefreshBots()
+    local l = {}
+    for _, o in ipairs(workspace:GetDescendants()) do
+        if o:IsA("Model") and not IsPlayerChar(o) then
+            local hum = o:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 and o:FindFirstChild("HumanoidRootPart") then
+                table.insert(l, o)
+            end
+        end
+    end
+    BotsCache = l
+end
+task.spawn(function() RefreshBots(); while task.wait(3) do RefreshBots() end end)
+
+local function GetClosestBot(maxFOV, maxDist)
+    maxDist = maxDist or Config.BotEspDistance
+    local myH = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myH then return nil end
+    local best, bd = nil, math.huge
+    local c = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local myPos = myH.Position
+    for _, bot in ipairs(BotsCache) do
+        if bot and bot.Parent then
+            local h = bot:FindFirstChild("HumanoidRootPart")
+            if h then
+                local d = (h.Position - myPos).Magnitude
+                if d <= maxDist then
+                    local pos, onS = Camera:WorldToViewportPoint(h.Position)
+                    if onS then
+                        local mag = (Vector2.new(pos.X, pos.Y) - c).Magnitude
+                        if mag <= maxFOV and mag < bd then
+                            local head = bot:FindFirstChild("Head") or h
+                            bd = mag; best = head
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- Вечный день
+RunService.Heartbeat:Connect(function()
+    if Config.AlwaysDay then
+        pcall(function()
+            Lighting.ClockTime = 14
+            Lighting.Brightness = 3
+            Lighting.GlobalShadows = false
+            Lighting.FogStart = 0
+            Lighting.FogEnd = 1000000
+            Lighting.FogColor = Color3.fromRGB(200, 200, 200)
+            for _, atm in ipairs(Lighting:GetChildren()) do
+                if atm:IsA("Atmosphere") then
+                    atm.Density = 0; atm.Haze = 0; atm.Glare = 0; atm.Offset = 0
+                end
+            end
+        end)
+    end
+end)
+
+local Window = WindUI:CreateWindow({
+    Title = "PROJECT DELTA HACK",
+    Author = "NEXUS",
+    Folder = "ProjectDelta",
+    Theme = "Dark",
+    Size = UDim2.fromOffset(400, 350),
+})
+Window:SetToggleKey(Enum.KeyCode.RightShift)
+
+local MainTab = Window:Tab({ Title = "Игроки", Icon = "crosshair" })
+local BotTab = Window:Tab({ Title = "Боты", Icon = "bot" })
+local WorldTab = Window:Tab({ Title = "Мир", Icon = "world" })
+
+-- Вкладка игроков
+MainTab:Toggle({ Title = "Аимбот (Игроки)", Value = false, Callback = function(s) Config.Aim = s; AimCircle.Visible = s end })
+MainTab:Dropdown({ Title = "Куда целиться", Values = { "Head", "HumanoidRootPart" }, Value = "Head", Callback = function(v) Config.AimTargetPart = v end })
+MainTab:Slider({ Title = "FOV (Радиус)", Value = { Min = 10, Max = 800, Default = 150 }, Callback = function(v) Config.AimRadius = v end })
+MainTab:Toggle({ Title = "Player Boxes (ВХ)", Value = false, Callback = function(s) Config.EspBoxes = s end })
+MainTab:Toggle({ Title = "Name Tags", Value = false, Callback = function(s) Config.EspNames = s end })
+
+-- Вкладка ботов
+BotTab:Toggle({ Title = "Аимбот (Боты)", Value = false, Callback = function(s) Config.BotAim = s; BotAimCircle.Visible = s end })
+BotTab:Slider({ Title = "Радиус бот-аима", Value = { Min = 10, Max = 800, Default = 200 }, Callback = function(v) Config.BotAimRadius = v end })
+BotTab:Toggle({ Title = "ESP Боты (Боксы)", Value = false, Callback = function(s) Config.BotEspBoxes = s end })
+BotTab:Toggle({ Title = "ESP Боты (Имена)", Value = false, Callback = function(s) Config.BotEspNames = s end })
+
+-- Вкладка мира
+WorldTab:Toggle({ Title = "Вечный День (Без тумана)", Value = false, Callback = function(s) Config.AlwaysDay = s end })
+
+-- Отрисовка
+local PlayerESP = {}
+local BotESP = {}
+
+RunService.RenderStepped:Connect(function()
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local myPos = myHrp and myHrp.Position or Vector3.zero
+    local vpSize = Camera.ViewportSize
+    local screenCenter = Vector2.new(vpSize.X / 2, vpSize.Y / 2)
+
+    if AimCircle.Visible then AimCircle.Position = screenCenter; AimCircle.Radius = Config.AimRadius end
+    if BotAimCircle.Visible then BotAimCircle.Position = screenCenter; BotAimCircle.Radius = Config.BotAimRadius end
+
+    if Config.Aim then
+        local t = GetClosestTarget(Config.AimRadius, Config.AimDistance)
+        if t then Camera.CFrame = CFrame.new(Camera.CFrame.Position, t.Position) end
+    end
+    
+    if Config.BotAim then
+        local b = GetClosestBot(Config.BotAimRadius, Config.BotAimDistance)
+        if b then Camera.CFrame = CFrame.new(Camera.CFrame.Position, b.Position) end
+    end
+
+    -- Рисуем игроков
+    for player, _ in pairs(PlayerESP) do
+        if not player.Parent or not player.Character then
+            for _, l in pairs(PlayerESP[player].box) do l:Remove() end
+            PlayerESP[player].text:Remove()
+            PlayerESP[player] = nil
+        end
+    end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and not PlayerESP[p] then
+            local d = { box = {}, text = Drawing.new("Text") }
+            for i=1,4 do local l = Drawing.new("Line"); l.Color = Color3.fromRGB(255, 50, 50); l.Thickness = 1.5; table.insert(d.box, l) end
+            d.text.Size = 13; d.text.Center = true; d.text.Outline = true; d.text.Color = Color3.fromRGB(255, 255, 255)
+            PlayerESP[p] = d
+        end
+    end
+    
+    -- Рисуем ботов
+    for bot, _ in pairs(BotESP) do
+        if not bot or not bot.Parent then
+            for _, l in pairs(BotESP[bot].box) do l:Remove() end
+            BotESP[bot].text:Remove()
+            BotESP[bot] = nil
+        end
+    end
+    for _, bot in ipairs(BotsCache) do
+        if bot and bot.Parent and not BotESP[bot] then
+            local d = { box = {}, text = Drawing.new("Text") }
+            for i=1,4 do local l = Drawing.new("Line"); l.Color = Color3.fromRGB(0, 255, 0); l.Thickness = 1.5; table.insert(d.box, l) end
+            d.text.Size = 13; d.text.Center = true; d.text.Outline = true; d.text.Color = Color3.fromRGB(0, 255, 0)
+            BotESP[bot] = d
+        end
+    end
+
+    -- Отрисовка игроков
+    for p, d in pairs(PlayerESP) do
+        local isR = false
+        if myHrp and p.Character then
+            local char = p.Character
+            local head = char:FindFirstChild("Head")
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if head and hrp then
+                local dist = (hrp.Position - myPos).Magnitude
+                if dist <= Config.EspDistance then 
+                    local tp, on1 = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+                    local bp, on2 = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0,2,0))
+                    if on1 and on2 then
+                        local h = math.abs(tp.Y - bp.Y); local w = h * 0.6
+                        local x = tp.X - (w/2); local y = tp.Y
+                        if Config.EspBoxes then
+                            d.box[1].From = Vector2.new(x, y); d.box[1].To = Vector2.new(x+w, y)
+                            d.box[2].From = Vector2.new(x+w, y); d.box[2].To = Vector2.new(x+w, y+h)
+                            d.box[3].From = Vector2.new(x+w, y+h); d.box[3].To = Vector2.new(x, y+h)
+                            d.box[4].From = Vector2.new(x, y+h); d.box[4].To = Vector2.new(x, y)
+                            for _, l in pairs(d.box) do l.Visible = true end
+                        else
+                            for _, l in pairs(d.box) do l.Visible = false end
+                        end
+                        d.text.Visible = Config.EspNames
+                        if Config.EspNames then
+                            d.text.Text = p.Name .. " [" .. math.floor(dist) .. "m]"
+                            d.text.Position = Vector2.new(tp.X, y - 16)
+                        end
+                        isR = true
+                    end
+                end
+            end
+        end
+        if not isR then for _, l in pairs(d.box) do l.Visible = false end; d.text.Visible = false end
+    end
+
+    -- Отрисовка ботов
+    for bot, d in pairs(BotESP) do
+        local isR = false
+        if myHrp and bot and bot.Parent then
+            local head = bot:FindFirstChild("Head")
+            local hrp = bot:FindFirstChild("HumanoidRootPart")
+            if head and hrp then
+                local dist = (hrp.Position - myPos).Magnitude
+                if dist <= Config.BotEspDistance then 
+                    local tp, on1 = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+                    local bp, on2 = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0,2,0))
+                    if on1 and on2 then
+                        local h = math.abs(tp.Y - bp.Y); local w = h * 0.6
+                        local x = tp.X - (w/2); local y = tp.Y
+                        if Config.BotEspBoxes then
+                            d.box[1].From = Vector2.new(x, y); d.box[1].To = Vector2.new(x+w, y)
+                            d.box[2].From = Vector2.new(x+w, y); d.box[2].To = Vector2.new(x+w, y+h)
+                            d.box[3].From = Vector2.new(x+w, y+h); d.box[3].To = Vector2.new(x, y+h)
+                            d.box[4].From = Vector2.new(x, y+h); d.box[4].To = Vector2.new(x, y)
+                            for _, l in pairs(d.box) do l.Visible = true end
+                        else
+                            for _, l in pairs(d.box) do l.Visible = false end
+                        end
+                        d.text.Visible = Config.BotEspNames
+                        if Config.BotEspNames then
+                            d.text.Text = "BOT: " .. bot.Name .. " [" .. math.floor(dist) .. "m]"
+                            d.text.Position = Vector2.new(tp.X, y - 16)
+                        end
+                        isR = true
+                    end
+                end
+            end
+        end
+        if not isR then for _, l in pairs(d.box) do l.Visible = false end; d.text.Visible = false end
+    end
+end)
+
+WindUI:Notify({ Title = "PROJECT DELTA", Content = "Аим + ВХ + Боты + Вечный День!", Duration = 5 })
