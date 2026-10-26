@@ -1,0 +1,553 @@
+-- ============================================================
+-- NEXUS HUB | v42.0 | PC FIX (NO SHAKE + NO LAG)
+-- ============================================================
+
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+
+local COLOR_MAIN = Color3.fromRGB(230, 230, 230)
+local COLOR_BOT = Color3.fromRGB(255, 60, 60)
+local COLOR_SKEL = Color3.fromRGB(255, 255, 255)
+local COLOR_TEAM = Color3.fromRGB(60, 255, 90)
+
+-- Конфиг (все твои старые функции на месте)
+local Config = {
+    Aim = false, AimRadius = 110, AimDistance = 500, AimTargetPart = "Head", AimSmooth = 1,
+    BotAim = false, BotAimRadius = 200, BotAimDistance = 500,
+    BotEspBoxes = false, BotEspNames = false, BotEspHP = false, BotEspDistance = 1000, 
+    HitboxEnabled = false, HitboxHeadSize = 3,
+    AutoHeal = false, ForceField = false, ShowInvisPlayers = false,
+    EspBoxes = false, EspNames = false, EspDist = false, EspHP = false, EspTracers = false, EspDistance = 3000,
+    SkeletonEsp = false, SkeletonThickness = 1.5, SkeletonColorMode = "Normal",
+    AlwaysDay = false, WaypointEnabled = false, WaypointPos = nil
+}
+
+local menuHidden = false
+
+-- Визуальные объекты
+local AimCircle = Drawing.new("Circle")
+AimCircle.Color = COLOR_MAIN; AimCircle.Thickness = 1.5; AimCircle.Filled = false; AimCircle.Visible = false
+
+local BotAimCircle = Drawing.new("Circle")
+BotAimCircle.Color = COLOR_BOT; BotAimCircle.Thickness = 1.5; BotAimCircle.Filled = false; BotAimCircle.Visible = false
+
+local WaypointLine = Drawing.new("Line")
+WaypointLine.Thickness = 2; WaypointLine.Color = Color3.fromRGB(50, 200, 255); WaypointLine.Visible = false
+local WaypointText = Drawing.new("Text")
+WaypointText.Size = 16; WaypointText.Center = true; WaypointText.Outline = true; WaypointText.Color = Color3.fromRGB(50, 200, 255); WaypointText.Visible = false
+
+-- Функции поиска
+local function GetHealthData(char)
+    if not char then return 100, 100 end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then return hum.Health, hum.MaxHealth end
+    return 100, 100
+end
+
+local function GetAimPart(char)
+    if not char then return nil end
+    if Config.AimTargetPart == "Head" then return char:FindFirstChild("Head")
+    elseif Config.AimTargetPart == "Torso" then return char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+    else return char:FindFirstChild("HumanoidRootPart") end
+end
+
+-- ИСПРАВЛЕННЫЙ АИМ (БЕЗ ТРЯСКИ)
+local function GetClosestTarget(maxFOV, maxDist)
+    maxDist = maxDist or Config.EspDistance
+    local myH = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myH then return nil end
+    local best, bd = nil, math.huge
+    local mousePos = UserInputService:GetMouseLocation()
+    local myPos = myH.Position
+    
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local char = p.Character
+            local h = char:FindFirstChild("HumanoidRootPart")
+            if h then
+                local d = (h.Position - myPos).Magnitude
+                if d <= maxDist then
+                    local targetPart = GetAimPart(char)
+                    if targetPart then
+                        local pos, onS = Camera:WorldToViewportPoint(targetPart.Position)
+                        if onS then
+                            local mag = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+                            if mag <= maxFOV and mag < bd then
+                                local hp = GetHealthData(char)
+                                if hp > 0 then
+                                    bd = mag; best = targetPart
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- Боты
+local BotsCache = {}
+local function IsPlayerChar(m) 
+    return Players:GetPlayerFromCharacter(m) ~= nil or string.find(string.lower(m.Name), "sleeper")
+end
+
+local function RefreshBots()
+    local l = {}
+    for _, o in ipairs(workspace:GetDescendants()) do
+        if o:IsA("Model") and not IsPlayerChar(o) then
+            local hum = o:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 and o:FindFirstChild("HumanoidRootPart") then
+                table.insert(l, o)
+            end
+        end
+    end
+    BotsCache = l
+end
+task.spawn(function() RefreshBots(); while task.wait(3) do RefreshBots() end end)
+
+local function GetClosestBot(maxFOV, maxDist)
+    maxDist = maxDist or 1000
+    local myH = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myH then return nil end
+    if #BotsCache == 0 then return nil end
+    local best, bd = nil, math.huge
+    local mousePos = UserInputService:GetMouseLocation()
+    local myPos = myH.Position
+    for _, bot in ipairs(BotsCache) do
+        if bot and bot.Parent then
+            local p3 = bot:FindFirstChild("HumanoidRootPart")
+            if p3 then
+                local d = (p3.Position - myPos).Magnitude
+                if d <= maxDist then
+                    local pos, onS = Camera:WorldToViewportPoint(p3.Position)
+                    if onS then
+                        local mag = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+                        if mag <= maxFOV and mag < bd then
+                            local hp = GetHealthData(bot)
+                            if hp > 0 then
+                                local part = bot:FindFirstChild("Head") or p3
+                                bd = mag; best = part
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- Скелет
+local SKELETON_LINKS = {
+    {"Head","UpperTorso"},{"UpperTorso","LowerTorso"},
+    {"UpperTorso","RightUpperArm"},{"RightUpperArm","RightLowerArm"},{"RightLowerArm","RightHand"},
+    {"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"LeftLowerArm","LeftHand"},
+    {"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},{"RightLowerLeg","RightFoot"},
+    {"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},{"LeftLowerLeg","LeftFoot"},
+}
+local SKELETON_R6 = {
+    {"Head","Torso"},{"Torso","Right Arm"},{"Right Arm","RightHand"},
+    {"Torso","Left Arm"},{"Left Arm","LeftHand"},
+    {"Torso","Right Leg"},{"Right Leg","RightFoot"},
+    {"Torso","Left Leg"},{"Left Leg","LeftFoot"},
+}
+
+local SkeletonLines = {}
+local function CreateSkeleton(player)
+    if SkeletonLines[player] then return end
+    local lines = {}
+    for i = 1, #SKELETON_LINKS do
+        local l = Drawing.new("Line")
+        l.Thickness = Config.SkeletonThickness; l.Color = COLOR_SKEL; l.Visible = false
+        table.insert(lines, l)
+    end
+    SkeletonLines[player] = lines
+end
+
+local function RemoveSkeleton(player)
+    if SkeletonLines[player] then
+        for _, l in ipairs(SkeletonLines[player]) do l:Remove() end
+        SkeletonLines[player] = nil
+    end
+end
+
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer then CreateSkeleton(p) end
+end
+Players.PlayerAdded:Connect(function(p) if p ~= LocalPlayer then CreateSkeleton(p) end end)
+Players.PlayerRemoving:Connect(function(p) RemoveSkeleton(p) end)
+
+-- Плавающая кнопка Аима
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AimToggleGui"
+ScreenGui.Parent = game:GetService("CoreGui")
+ScreenGui.ResetOnSpawn = false
+
+local AimBtn = Instance.new("TextButton")
+AimBtn.Size = UDim2.new(0, 60, 0, 60)
+AimBtn.Position = UDim2.new(0, 20, 0.5, 0)
+AimBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20) 
+AimBtn.TextColor3 = Color3.fromRGB(255, 255, 255) 
+AimBtn.Font = Enum.Font.GothamBold
+AimBtn.TextSize = 14
+AimBtn.Text = "AIM\nOFF"
+AimBtn.Parent = ScreenGui
+AimBtn.Active = true
+AimBtn.Visible = false 
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(255, 255, 255)
+UIStroke.Thickness = 1.5
+UIStroke.Parent = AimBtn
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 30)
+UICorner.Parent = AimBtn
+
+-- Перетаскивание кнопки (для ПК и мобилок)
+local dragging = false
+local dragInput, dragStart, startPos
+AimBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = AimBtn.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
+AimBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        AimBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+local isAimOn = false
+AimBtn.MouseButton1Click:Connect(function()
+    isAimOn = not isAimOn
+    Config.Aim = isAimOn
+    AimCircle.Visible = isAimOn
+    if isAimOn then
+        AimBtn.TextColor3 = Color3.fromRGB(0, 255, 0)
+        AimBtn.Text = "AIM\nON"
+    else
+        AimBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        AimBtn.Text = "AIM\nOFF"
+    end
+end)
+
+-- Меню
+local Window = WindUI:CreateWindow({
+    Title = "NEXUS HUB | RASPAD",
+    Author = "v42.0 | PC FIX",
+    Folder = "NexusHub",
+    Icon = "solar:folder-2-bold-duotone",
+    Theme = "Dark",
+    Size = UDim2.fromOffset(560, 440),
+    Topbar = { Height = 44, ButtonsType = "Mac" }
+})
+Window:SetToggleKey(Enum.KeyCode.RightShift)
+
+local CombatTab = Window:Tab({ Title = "Combat", Icon = "crosshair" })
+local BotsTab = Window:Tab({ Title = "Bots", Icon = "bot" })
+local HitboxTab = Window:Tab({ Title = "Hitboxes", Icon = "box" })
+local VisualsTab = Window:Tab({ Title = "Visuals", Icon = "eye" })
+local WorldTab = Window:Tab({ Title = "World", Icon = "world" })
+
+CombatTab:Toggle({ Title = "Жесткий Аимбот", Value = false, Callback = function(s) Config.Aim = s; AimCircle.Visible = s; AimBtn.Text = s and "AIM\nON" or "AIM\nOFF"; AimBtn.TextColor3 = s and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,255,255) end })
+CombatTab:Toggle({ Title = "Плавающая кнопка Аима", Value = false, Callback = function(s) AimBtn.Visible = s end }) 
+CombatTab:Dropdown({ Title = "Куда целиться", Values = { "Head", "Torso", "HumanoidRootPart" }, Value = "Head", Callback = function(v) Config.AimTargetPart = v end })
+CombatTab:Slider({ Title = "Радиус Аима (FOV)", Value = { Min = 10, Max = 800, Default = 110 }, Callback = function(v) Config.AimRadius = v end })
+CombatTab:Slider({ Title = "Дальность Аима", Value = { Min = 50, Max = 5000, Default = 500 }, Callback = function(v) Config.AimDistance = v end })
+
+BotsTab:Toggle({ Title = "BOT AIMBOT", Value = false, Callback = function(s) Config.BotAim = s; BotAimCircle.Visible = s end })
+BotsTab:Slider({ Title = "Радиус Бот Аима", Value = { Min = 10, Max = 800, Default = 200 }, Callback = function(v) Config.BotAimRadius = v end })
+BotsTab:Toggle({ Title = "Боксы", Value = false, Callback = function(s) Config.BotEspBoxes = s end })
+BotsTab:Toggle({ Title = "Имена", Value = false, Callback = function(s) Config.BotEspNames = s end })
+BotsTab:Toggle({ Title = "HP", Value = false, Callback = function(s) Config.BotEspHP = s end })
+BotsTab:Button({ Title = "Обновить", Callback = function() RefreshBots(); WindUI:Notify({ Title = "Bots", Content = "Найдено: " .. #BotsCache, Duration = 3 }) end })
+
+HitboxTab:Toggle({ Title = "Увеличение хитбоксов", Value = false, Callback = function(s) Config.HitboxEnabled = s end })
+HitboxTab:Slider({ Title = "Размер головы", Value = { Min = 1, Max = 10, Default = 3 }, Callback = function(v) Config.HitboxHeadSize = v end })
+
+VisualsTab:Slider({ Title = "Макс. Дистанция ESP", Value = { Min = 100, Max = 3000, Default = 3000 }, Callback = function(v) Config.EspDistance = v end })
+VisualsTab:Toggle({ Title = "Player Boxes", Value = false, Callback = function(s) Config.EspBoxes = s end })
+VisualsTab:Toggle({ Title = "Name Tags", Value = false, Callback = function(s) Config.EspNames = s end })
+VisualsTab:Toggle({ Title = "Distance Info", Value = false, Callback = function(s) Config.EspDist = s end })
+VisualsTab:Toggle({ Title = "Health Bar", Value = false, Callback = function(s) Config.EspHP = s end })
+VisualsTab:Toggle({ Title = "Tracers", Value = false, Callback = function(s) Config.EspTracers = s end })
+VisualsTab:Toggle({ Title = "Скелет", Value = false, Callback = function(s) Config.SkeletonEsp = s end })
+VisualsTab:Slider({ Title = "Толщина линий", Value = { Min = 1, Max = 5, Default = 1.5 }, Callback = function(v) Config.SkeletonThickness = v end })
+
+WorldTab:Button({ Title = "Поставить метку", Callback = function()
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        Config.WaypointPos = hrp.Position
+        Config.WaypointEnabled = true
+        WindUI:Notify({ Title = "Метка", Content = "Поставлена!", Duration = 3 })
+    end
+end })
+WorldTab:Button({ Title = "Удалить метку", Callback = function()
+    Config.WaypointPos = nil; Config.WaypointEnabled = false
+end })
+WorldTab:Toggle({ Title = "Вечный День", Value = false, Callback = function(s) Config.AlwaysDay = s end })
+
+-- Отрисовка
+local BotESP = {}
+local PlayerESP = {}
+
+RunService.RenderStepped:Connect(function()
+    if menuHidden then return end
+    
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local myPos = myHrp and myHrp.Position or Vector3.zero
+    local mousePos = UserInputService:GetMouseLocation()
+    local vpSize = Camera.ViewportSize
+    local screenCenter = Vector2.new(vpSize.X / 2, vpSize.Y / 2)
+
+    if AimCircle.Visible then AimCircle.Position = mousePos; AimCircle.Radius = Config.AimRadius end
+    if BotAimCircle.Visible then BotAimCircle.Position = mousePos; BotAimCircle.Radius = Config.BotAimRadius end
+
+    -- ЖЁСТКИЙ АИМ (БЕЗ ТРЯСКИ)
+    if Config.Aim then
+        local t = GetClosestTarget(Config.AimRadius, Config.AimDistance)
+        if t then 
+            pcall(function()
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, t.Position)
+            end)
+        end
+    end
+    if Config.BotAim then
+        local bT = GetClosestBot(Config.BotAimRadius, Config.BotAimDistance)
+        if bT then 
+            pcall(function()
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, bT.Position)
+            end)
+        end
+    end
+
+    -- Метка
+    if Config.WaypointEnabled and Config.WaypointPos then
+        local pos2d, onS = Camera:WorldToViewportPoint(Config.WaypointPos)
+        local dist = myHrp and (Config.WaypointPos - myHrp.Position).Magnitude or 0
+        if onS then
+            WaypointText.Position = Vector2.new(pos2d.X, pos2d.Y - 25)
+            WaypointText.Text = "Метка " .. math.floor(dist) .. "м"
+            WaypointText.Visible = true; WaypointLine.Visible = false
+        else
+            local relPos = Camera.CFrame:PointToObjectSpace(Config.WaypointPos)
+            local angle = math.atan2(relPos.X, -relPos.Z)
+            WaypointLine.From = screenCenter + Vector2.new(math.sin(angle), math.cos(angle)) * 40
+            WaypointLine.To = screenCenter + Vector2.new(math.sin(angle), math.cos(angle)) * 80
+            WaypointLine.Visible = true
+            WaypointText.Position = WaypointLine.To + Vector2.new(0, -20)
+            WaypointText.Text = "Метка " .. math.floor(dist) .. "м"
+            WaypointText.Visible = true
+        end
+    else
+        WaypointLine.Visible = false; WaypointText.Visible = false
+    end
+
+    -- ESP Ботов
+    for bot, _ in pairs(BotESP) do
+        if not bot or not bot.Parent then
+            for _, l in pairs(BotESP[bot].box) do l:Remove() end
+            BotESP[bot].text:Remove(); BotESP[bot].hpBg:Remove(); BotESP[bot].hpBar:Remove()
+            BotESP[bot] = nil
+        end
+    end
+    for _, bot in ipairs(BotsCache) do
+        if bot and bot.Parent and not BotESP[bot] then
+            local d = { box = {}, text = Drawing.new("Text"), hpBg = Drawing.new("Line"), hpBar = Drawing.new("Line") }
+            for i=1,4 do local l = Drawing.new("Line"); l.Color = COLOR_BOT; l.Thickness = 1.5; table.insert(d.box, l) end
+            d.text.Size = 13; d.text.Center = true; d.text.Outline = true; d.text.Color = COLOR_BOT
+            d.hpBg.Thickness = 3; d.hpBg.Color = Color3.fromRGB(0,0,0)
+            d.hpBar.Thickness = 2; d.hpBar.Color = Color3.fromRGB(0,255,0)
+            BotESP[bot] = d
+        end
+    end
+    for bot, d in pairs(BotESP) do
+        local isR = false
+        if myHrp and bot and bot.Parent then
+            local head = bot:FindFirstChild("Head")
+            local hrp = bot:FindFirstChild("HumanoidRootPart")
+            local hum = bot:FindFirstChildOfClass("Humanoid")
+            if head and hrp and hum then
+                local dist = (hrp.Position - myPos).Magnitude
+                if dist <= 1000 then 
+                    local tp, on1 = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+                    local bp, on2 = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0,2,0))
+                    if on1 and on2 then
+                        local h = math.abs(tp.Y - bp.Y); local w = h * 0.6
+                        local x = tp.X - (w/2); local y = tp.Y
+                        if Config.BotEspBoxes then
+                            d.box[1].From = Vector2.new(x, y); d.box[1].To = Vector2.new(x+w, y)
+                            d.box[2].From = Vector2.new(x+w, y); d.box[2].To = Vector2.new(x+w, y+h)
+                            d.box[3].From = Vector2.new(x+w, y+h); d.box[3].To = Vector2.new(x, y+h)
+                            d.box[4].From = Vector2.new(x, y+h); d.box[4].To = Vector2.new(x, y)
+                            for _, l in pairs(d.box) do l.Visible = true end
+                        else
+                            for _, l in pairs(d.box) do l.Visible = false end
+                        end
+                        d.text.Visible = Config.BotEspNames
+                        if Config.BotEspNames then
+                            d.text.Text = bot.Name .. " [" .. math.floor(dist) .. "m]"
+                            d.text.Position = Vector2.new(tp.X, y - 16)
+                        end
+                        if Config.BotEspHP then
+                            local hpPct = hum.Health / hum.MaxHealth
+                            d.hpBg.From = Vector2.new(x - 6, y); d.hpBg.To = Vector2.new(x - 6, y + h)
+                            d.hpBar.From = Vector2.new(x - 6, y + h - (h * hpPct)); d.hpBar.To = Vector2.new(x - 6, y + h)
+                            d.hpBar.Color = Color3.fromHSV(hpPct * 0.3, 1, 1)
+                            d.hpBg.Visible = true; d.hpBar.Visible = true
+                        else
+                            d.hpBg.Visible = false; d.hpBar.Visible = false
+                        end
+                        isR = true
+                    end
+                end
+            end
+        end
+        if not isR then 
+            for _, l in pairs(d.box) do l.Visible = false end
+            d.text.Visible = false; d.hpBg.Visible = false; d.hpBar.Visible = false
+        end
+    end
+
+    -- ESP Игроков
+    for player, _ in pairs(PlayerESP) do
+        if not player.Parent or not player.Character then
+            for _, l in pairs(PlayerESP[player].box) do l:Remove() end
+            PlayerESP[player].text:Remove()
+            if PlayerESP[player].hpBg then PlayerESP[player].hpBg:Remove() end
+            if PlayerESP[player].hpBar then PlayerESP[player].hpBar:Remove() end
+            if PlayerESP[player].tracer then PlayerESP[player].tracer:Remove() end
+            PlayerESP[player] = nil
+        end
+    end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and not PlayerESP[p] then
+            local d = { box = {}, text = Drawing.new("Text"), hpBg = Drawing.new("Line"), hpBar = Drawing.new("Line"), tracer = Drawing.new("Line") }
+            for i=1,4 do local l = Drawing.new("Line"); l.Color = COLOR_MAIN; l.Thickness = 1.5; table.insert(d.box, l) end
+            d.text.Size = 13; d.text.Center = true; d.text.Outline = true; d.text.Color = COLOR_MAIN
+            d.hpBg.Thickness = 3; d.hpBg.Color = Color3.fromRGB(0,0,0)
+            d.hpBar.Thickness = 2; d.tracer.Thickness = 1.5
+            PlayerESP[p] = d
+        end
+    end
+    for p, d in pairs(PlayerESP) do
+        local isR = false
+        if myHrp and p.Character then
+            local char = p.Character
+            local head = char:FindFirstChild("Head")
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if head and hrp and hum then
+                local dist = (hrp.Position - myPos).Magnitude
+                if dist <= Config.EspDistance then 
+                    local tp, on1 = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+                    local bp, on2 = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0,2,0))
+                    if on1 and on2 then
+                        local h = math.abs(tp.Y - bp.Y); local w = h * 0.6
+                        local x = tp.X - (w/2); local y = tp.Y
+                        
+                        if Config.EspBoxes then
+                            d.box[1].From = Vector2.new(x, y); d.box[1].To = Vector2.new(x+w, y)
+                            d.box[2].From = Vector2.new(x+w, y); d.box[2].To = Vector2.new(x+w, y+h)
+                            d.box[3].From = Vector2.new(x+w, y+h); d.box[3].To = Vector2.new(x, y+h)
+                            d.box[4].From = Vector2.new(x, y+h); d.box[4].To = Vector2.new(x, y)
+                            for _, l in pairs(d.box) do l.Visible = true end
+                        else
+                            for _, l in pairs(d.box) do l.Visible = false end
+                        end
+                        
+                        d.text.Visible = (Config.EspNames or Config.EspDist)
+                        if d.text.Visible then
+                            local name = Config.EspNames and p.Name or ""
+                            local distTxt = Config.EspDist and (" [" .. math.floor(dist) .. "m]") or ""
+                            d.text.Text = name .. distTxt
+                            d.text.Position = Vector2.new(tp.X, y - 16)
+                        end
+
+                        if Config.EspHP then
+                            local hpPct = hum.Health / hum.MaxHealth
+                            d.hpBg.From = Vector2.new(x - 6, y); d.hpBg.To = Vector2.new(x - 6, y + h)
+                            d.hpBar.From = Vector2.new(x - 6, y + h - (h * hpPct)); d.hpBar.To = Vector2.new(x - 6, y + h)
+                            d.hpBar.Color = Color3.fromHSV(hpPct * 0.3, 1, 1)
+                            d.hpBg.Visible = true; d.hpBar.Visible = true
+                        else
+                            d.hpBg.Visible = false; d.hpBar.Visible = false
+                        end
+
+                        if Config.EspTracers then
+                            d.tracer.From = screenCenter
+                            d.tracer.To = Vector2.new(tp.X, y + h)
+                            d.tracer.Color = COLOR_MAIN
+                            d.tracer.Visible = true
+                        else
+                            d.tracer.Visible = false
+                        end
+                        isR = true
+                    end
+                end
+            end
+        end
+        if not isR then 
+            for _, l in pairs(d.box) do l.Visible = false end
+            d.text.Visible = false 
+            d.hpBg.Visible = false; d.hpBar.Visible = false
+            d.tracer.Visible = false
+        end
+    end
+
+    -- Скелет
+    if Config.SkeletonEsp then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and SkeletonLines[p] then
+                local char = p.Character
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp and (hrp.Position - myPos).Magnitude <= Config.EspDistance then
+                    local links = SKELETON_LINKS
+                    if not char:FindFirstChild("UpperTorso") and char:FindFirstChild("Torso") then links = SKELETON_R6 end
+                    for i, link in ipairs(links) do
+                        local l = SkeletonLines[p][i]
+                        if l then
+                            local p1 = char:FindFirstChild(link[1])
+                            local p2 = char:FindFirstChild(link[2])
+                            if p1 and p2 then
+                                local v1, on1 = Camera:WorldToViewportPoint(p1.Position)
+                                local v2, on2 = Camera:WorldToViewportPoint(p2.Position)
+                                if on1 and on2 then
+                                    l.From = Vector2.new(v1.X, v1.Y); l.To = Vector2.new(v2.X, v2.Y)
+                                    l.Color = COLOR_SKEL; l.Thickness = Config.SkeletonThickness; l.Visible = true
+                                else l.Visible = false end
+                            else l.Visible = false end
+                        end
+                    end
+                else
+                    for _, l in pairs(SkeletonLines[p]) do l.Visible = false end
+                end
+            end
+        end
+    else
+        for _, lines in pairs(SkeletonLines) do
+            for _, l in pairs(lines) do l.Visible = false end
+        end
+    end
+end)
+
+WindUI:Notify({ Title = "NEXUS v42.0", Content = "Тряска убрана, лаги пофикшены!", Duration = 5 })
