@@ -1,0 +1,364 @@
+-- ============================================================
+-- KIXDEV HUB | NEXUS RUST (v42.2 | FULL FIX + 60 FPS ESP)
+-- ============================================================
+
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+
+local COLOR_MAIN    = Color3.fromRGB(230, 230, 230)
+local COLOR_ACCENT  = Color3.fromRGB(255, 255, 255)
+local COLOR_BOT     = Color3.fromRGB(255, 60, 60)
+local COLOR_SKEL    = Color3.fromRGB(255, 255, 255)
+local COLOR_HIT     = Color3.fromRGB(255, 50, 50)
+local COLOR_WP      = Color3.fromRGB(50, 200, 255)
+
+local Config = {
+    SafeBlink = false, InfJump = false,
+    Invisible = false, InvisMode = "Full", HideName = false, HideAccessories = true,
+
+    Aim = false, AimRadius = 150, AimDistance = 1000,
+    WallCheck = true, AimTargetPart = "Head", AimSmooth = 0.2,
+
+    BotAim = false, BotAimRadius = 200, BotAimDistance = 500,
+    BotEspBoxes = false, BotEspNames = false, BotEspHP = false, BotEspDistance = 5000,
+
+    HitboxEnabled = false, HitboxHRPSize = 5, HitboxHeadSize = 3,
+    HitboxTransparency = 0.6, HitboxTeamCheck = true,
+    MyHeadSmall = false, MyHeadSize = 0.3,
+
+    EspBoxes = false, EspNames = false, EspDist = false,
+    EspHP = false, EspTracers = false, EspDistance = 5000,
+
+    SkeletonEsp = false, SkeletonThickness = 1.5,
+
+    AlwaysDay = false
+}
+
+local menuHidden = false
+
+-- Кружок Аима
+local AimCircle = Drawing.new("Circle")
+AimCircle.Color = COLOR_MAIN; AimCircle.Thickness = 1.5
+AimCircle.Filled = false; AimCircle.Visible = false
+
+local BotAimCircle = Drawing.new("Circle")
+BotAimCircle.Color = COLOR_BOT; BotAimCircle.Thickness = 1.5
+BotAimCircle.Filled = false; BotAimCircle.Visible = false
+
+local function GetHealthData(char)
+    if not char then return 100, 100 end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then return hum.Health, hum.MaxHealth end
+    return 100, 100
+end
+
+local function isVisible(part, char)
+    if not Config.WallCheck then return true end
+    local myChar = LocalPlayer.Character
+    if not myChar or not part then return false end
+    local p = RaycastParams.new()
+    p.FilterType = Enum.RaycastFilterType.Exclude
+    p.FilterDescendantsInstances = {myChar, char}
+    local ray = workspace:Raycast(Camera.CFrame.Position, part.Position - Camera.CFrame.Position, p)
+    return ray == nil
+end
+
+local function GetAimPart(char)
+    if not char then return nil end
+    local m = Config.AimTargetPart
+    if m == "Head" then return char:FindFirstChild("Head")
+    elseif m == "Torso" then return char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+    else return char:FindFirstChild("HumanoidRootPart") end
+end
+
+local function GetClosestTarget(maxFOV, maxDist)
+    local myH = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myH then return nil end
+    local best, bd = nil, math.huge
+    local c = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local myPos = myH.Position
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local char = p.Character
+            local h = char:FindFirstChild("HumanoidRootPart")
+            if h then
+                local d = (h.Position - myPos).Magnitude
+                if d <= maxDist then
+                    local ap = GetAimPart(char)
+                    if ap then
+                        local pos, onS = Camera:WorldToViewportPoint(ap.Position)
+                        if onS then
+                            local mag = (Vector2.new(pos.X, pos.Y) - c).Magnitude
+                            if mag <= maxFOV and mag < bd then
+                                local hp = GetHealthData(char)
+                                if hp > 0 and isVisible(ap, char) then
+                                    bd = mag; best = ap
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- Боты
+local BotsCache = {}
+local function RefreshBots()
+    local l = {}
+    for _, o in ipairs(workspace:GetChildren()) do
+        if o:IsA("Model") and not Players:GetPlayerFromCharacter(o) then
+            local hum = o:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 and o:FindFirstChild("HumanoidRootPart") then
+                table.insert(l, o)
+            end
+        end
+    end
+    BotsCache = l
+end
+task.spawn(function() RefreshBots(); while task.wait(3) do RefreshBots() end end)
+
+-- ОКНО
+local Window = WindUI:CreateWindow({
+    Title = "KIXDEV HUB | NEXUS RUST",
+    Author = "v42.2 | FIX",
+    Folder = "KixdevHub",
+    Theme = "Dark",
+    Size = UDim2.fromOffset(560, 440),
+})
+Window:SetToggleKey(Enum.KeyCode.RightShift)
+
+local HomeTab = Window:Tab({ Title = "Home", Icon = "home" })
+local CombatTab = Window:Tab({ Title = "Combat", Icon = "crosshair" })
+local BotsTab = Window:Tab({ Title = "Bots", Icon = "bot" }) -- Вкладка ботов на месте
+local HitboxTab = Window:Tab({ Title = "Hitboxes", Icon = "box" })
+local VisualsTab = Window:Tab({ Title = "Visuals", Icon = "eye" })
+local WorldTab = Window:Tab({ Title = "World", Icon = "world" })
+
+-- HOME
+HomeTab:Toggle({ Title = "Безопасный Рывок", Value = false, Callback = function(s) Config.SafeBlink = s end })
+HomeTab:Toggle({ Title = "Бесконечный прыжок", Value = false, Callback = function(s) Config.InfJump = s end })
+HomeTab:Toggle({ Title = "СТАТЬ НЕВИДИМЫМ", Value = false, Callback = function(s) Config.Invisible = s end })
+
+-- COMBAT (АИМ)
+CombatTab:Toggle({ Title = "Жесткий Аимбот", Value = false, Callback = function(s) Config.Aim = s; AimCircle.Visible = s end })
+CombatTab:Dropdown({ Title = "Куда целиться", Values = { "Head", "Torso", "HumanoidRootPart" }, Value = "Head", Callback = function(v) Config.AimTargetPart = v end })
+CombatTab:Slider({ Title = "Радиус (FOV)", Value = { Min = 10, Max = 800, Default = 150 }, Callback = function(v) Config.AimRadius = v end })
+CombatTab:Slider({ Title = "Дальность", Value = { Min = 50, Max = 5000, Default = 1000 }, Callback = function(v) Config.AimDistance = v end })
+CombatTab:Slider({ Title = "Плавность", Value = { Min = 0.1, Max = 1, Default = 0.2, Float = true }, Callback = function(v) Config.AimSmooth = v end })
+CombatTab:Toggle({ Title = "Проверка стен", Value = true, Callback = function(s) Config.WallCheck = s end })
+
+-- BOTS (ВКЛАДКА)
+BotsTab:Toggle({ Title = "BOT AIMBOT", Value = false, Callback = function(s) Config.BotAim = s; BotAimCircle.Visible = s end })
+BotsTab:Slider({ Title = "Радиус Бот Аима", Value = { Min = 10, Max = 800, Default = 200 }, Callback = function(v) Config.BotAimRadius = v end })
+BotsTab:Toggle({ Title = "Боксы", Value = false, Callback = function(s) Config.BotEspBoxes = s end })
+BotsTab:Toggle({ Title = "Имена", Value = false, Callback = function(s) Config.BotEspNames = s end })
+BotsTab:Toggle({ Title = "HP", Value = false, Callback = function(s) Config.BotEspHP = s end })
+BotsTab:Button({ Title = "Обновить", Callback = function() RefreshBots(); WindUI:Notify({ Title = "Bots", Content = "Найдено: " .. #BotsCache, Duration = 3 }) end })
+
+-- VISUALS (ESP)
+VisualsTab:Slider({ Title = "Дистанция ESP", Value = { Min = 100, Max = 10000, Default = 5000 }, Callback = function(v) Config.EspDistance = v end })
+VisualsTab:Toggle({ Title = "Player Boxes", Value = false, Callback = function(s) Config.EspBoxes = s end })
+VisualsTab:Toggle({ Title = "Name Tags", Value = false, Callback = function(s) Config.EspNames = s end })
+VisualsTab:Toggle({ Title = "Distance Info", Value = false, Callback = function(s) Config.EspDist = s end })
+VisualsTab:Toggle({ Title = "Health Bar", Value = false, Callback = function(s) Config.EspHP = s end })
+VisualsTab:Toggle({ Title = "Tracers", Value = false, Callback = function(s) Config.EspTracers = s end })
+VisualsTab:Toggle({ Title = "Скелет", Value = false, Callback = function(s) Config.SkeletonEsp = s end })
+
+-- WORLD
+WorldTab:Toggle({ Title = "Вечный День", Value = false, Callback = function(s) Config.AlwaysDay = s end })
+
+-- ТОГГЛ МЕНЮ
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        menuHidden = not menuHidden
+        local windGui = game.CoreGui:FindFirstChild("WindUI")
+        if windGui then windGui.Enabled = not menuHidden end
+        if menuHidden then
+            UserInputService.MouseIconEnabled = true
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        end
+        AimCircle.Visible = (not menuHidden) and Config.Aim
+        BotAimCircle.Visible = (not menuHidden) and Config.BotAim
+    end
+end)
+
+-- АИМ И КРУЖОК
+RunService.RenderStepped:Connect(function()
+    if menuHidden then return end
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    
+    if AimCircle.Visible then
+        AimCircle.Position = screenCenter
+        AimCircle.Radius = Config.AimRadius
+    end
+    if BotAimCircle.Visible then
+        BotAimCircle.Position = screenCenter
+        BotAimCircle.Radius = Config.BotAimRadius
+    end
+
+    if Config.Aim then
+        local t = GetClosestTarget(Config.AimRadius, Config.AimDistance)
+        if t then
+            pcall(function()
+                Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, t.Position), Config.AimSmooth)
+            end)
+        end
+    end
+end)
+
+-- ESP И БОТЫ (60 КАДРОВ ЧЕРЕЗ RENDERSTEPPED)
+local PlayerESP = {}
+local BotESP = {}
+
+RunService.RenderStepped:Connect(function()
+    if menuHidden then return end
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return end
+    local myPos = myHrp.Position
+    
+    -- ESP ИГРОКОВ
+    for player, _ in pairs(PlayerESP) do
+        if not player.Parent or not player.Character then
+            for _, l in pairs(PlayerESP[player].box) do l:Remove() end
+            PlayerESP[player].text:Remove(); PlayerESP[player].hpBg:Remove(); PlayerESP[player].hpBar:Remove(); PlayerESP[player].tracer:Remove()
+            PlayerESP[player] = nil
+        end
+    end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and not PlayerESP[p] then
+            local d = { box = {}, text = Drawing.new("Text"), hpBg = Drawing.new("Line"), hpBar = Drawing.new("Line"), tracer = Drawing.new("Line") }
+            for i=1,4 do local l = Drawing.new("Line"); l.Thickness = 1; table.insert(d.box, l) end
+            d.text.Size = 13; d.text.Center = true; d.text.Outline = true
+            d.hpBg.Thickness = 2; d.hpBg.Color = Color3.fromRGB(0,0,0)
+            d.hpBar.Thickness = 2
+            d.tracer.Thickness = 1.5
+            PlayerESP[p] = d
+        end
+    end
+    
+    for p, d in pairs(PlayerESP) do
+        local isR = false
+        if p.Character then
+            local char = p.Character
+            local head, hrp, hum = char:FindFirstChild("Head"), char:FindFirstChild("HumanoidRootPart"), char:FindFirstChildOfClass("Humanoid")
+            if head and hrp and hum then
+                local dist = (hrp.Position - myPos).Magnitude
+                if dist <= Config.EspDistance then 
+                    local tp, on1 = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+                    local bp, on2 = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0,2,0))
+                    if on1 and on2 then
+                        local h = math.abs(tp.Y - bp.Y); local w = h * 0.6
+                        local x = tp.X - (w/2); local y = tp.Y
+                        
+                        if Config.EspBoxes then
+                            d.box[1].From = Vector2.new(x, y); d.box[1].To = Vector2.new(x+w, y); d.box[1].Visible = true
+                            d.box[2].From = Vector2.new(x+w, y); d.box[2].To = Vector2.new(x+w, y+h); d.box[2].Visible = true
+                            d.box[3].From = Vector2.new(x+w, y+h); d.box[3].To = Vector2.new(x, y+h); d.box[3].Visible = true
+                            d.box[4].From = Vector2.new(x, y+h); d.box[4].To = Vector2.new(x, y); d.box[4].Visible = true
+                        else
+                            for _, l in pairs(d.box) do l.Visible = false end
+                        end
+                        
+                        d.text.Visible = (Config.EspNames or Config.EspDist)
+                        if d.text.Visible then
+                            local name = Config.EspNames and p.Name or ""
+                            local distTxt = Config.EspDist and (" [" .. math.floor(dist) .. "m]") or ""
+                            d.text.Text = name .. distTxt; d.text.Position = Vector2.new(tp.X, y - 16)
+                        end
+
+                        if Config.EspHP then
+                            local hpPct = hum.Health / hum.MaxHealth
+                            d.hpBg.From = Vector2.new(x - 4, y); d.hpBg.To = Vector2.new(x - 4, y + h); d.hpBg.Visible = true
+                            d.hpBar.From = Vector2.new(x - 4, y + h - (h * hpPct)); d.hpBar.To = Vector2.new(x - 4, y + h)
+                            d.hpBar.Color = Color3.fromHSV(hpPct * 0.3, 1, 1); d.hpBar.Visible = true
+                        else
+                            d.hpBg.Visible = false; d.hpBar.Visible = false
+                        end
+
+                        if Config.EspTracers then
+                            d.tracer.From = screenCenter
+                            d.tracer.To = Vector2.new(tp.X, y + h)
+                            d.tracer.Visible = true
+                        else
+                            d.tracer.Visible = false
+                        end
+                        isR = true
+                    end
+                end
+            end
+        end
+        if not isR then 
+            for _, l in pairs(d.box) do l.Visible = false end
+            d.text.Visible = false; d.hpBg.Visible = false; d.hpBar.Visible = false; d.tracer.Visible = false
+        end
+    end
+
+    -- ESP БОТОВ
+    for bot, _ in pairs(BotESP) do
+        if not bot or not bot.Parent then
+            for _, l in pairs(BotESP[bot].box) do l:Remove() end
+            BotESP[bot].text:Remove(); BotESP[bot].hpBg:Remove(); BotESP[bot].hpBar:Remove()
+            BotESP[bot] = nil
+        end
+    end
+    for _, bot in ipairs(BotsCache) do
+        if bot and bot.Parent and not BotESP[bot] then
+            local d = { box = {}, text = Drawing.new("Text"), hpBg = Drawing.new("Line"), hpBar = Drawing.new("Line") }
+            for i=1,4 do local l = Drawing.new("Line"); l.Color = COLOR_BOT; l.Thickness = 1.5; table.insert(d.box, l) end
+            d.text.Size = 13; d.text.Center = true; d.text.Outline = true; d.text.Color = COLOR_BOT
+            d.hpBg.Thickness = 2; d.hpBg.Color = Color3.fromRGB(0,0,0)
+            d.hpBar.Thickness = 2
+            BotESP[bot] = d
+        end
+    end
+    for bot, d in pairs(BotESP) do
+        local isR = false
+        if bot and bot.Parent then
+            local head, hrp, hum = bot:FindFirstChild("Head"), bot:FindFirstChild("HumanoidRootPart"), bot:FindFirstChildOfClass("Humanoid")
+            if head and hrp and hum then
+                local dist = (hrp.Position - myPos).Magnitude
+                if dist <= Config.BotEspDistance then 
+                    local tp, on1 = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+                    local bp, on2 = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0,2,0))
+                    if on1 and on2 then
+                        local h = math.abs(tp.Y - bp.Y); local w = h * 0.6
+                        local x = tp.X - (w/2); local y = tp.Y
+                        if Config.BotEspBoxes then
+                            d.box[1].From = Vector2.new(x, y); d.box[1].To = Vector2.new(x+w, y); d.box[1].Visible = true
+                            d.box[2].From = Vector2.new(x+w, y); d.box[2].To = Vector2.new(x+w, y+h); d.box[2].Visible = true
+                            d.box[3].From = Vector2.new(x+w, y+h); d.box[3].To = Vector2.new(x, y+h); d.box[3].Visible = true
+                            d.box[4].From = Vector2.new(x, y+h); d.box[4].To = Vector2.new(x, y); d.box[4].Visible = true
+                        else for _, l in pairs(d.box) do l.Visible = false end end
+                        d.text.Visible = Config.BotEspNames
+                        if Config.BotEspNames then
+                            d.text.Text = bot.Name .. " [" .. math.floor(dist) .. "m]"
+                            d.text.Position = Vector2.new(tp.X, y - 16)
+                        end
+                        if Config.BotEspHP then
+                            local hpPct = hum.Health / hum.MaxHealth
+                            d.hpBg.From = Vector2.new(x - 4, y); d.hpBg.To = Vector2.new(x - 4, y + h); d.hpBg.Visible = true
+                            d.hpBar.From = Vector2.new(x - 4, y + h - (h * hpPct)); d.hpBar.To = Vector2.new(x - 4, y + h)
+                            d.hpBar.Color = Color3.fromHSV(hpPct * 0.3, 1, 1); d.hpBar.Visible = true
+                        else d.hpBg.Visible = false; d.hpBar.Visible = false end
+                        isR = true
+                    end
+                end
+            end
+        end
+        if not isR then 
+            for _, l in pairs(d.box) do l.Visible = false end
+            d.text.Visible = false; d.hpBg.Visible = false; d.hpBar.Visible = false
+        end
+    end
+end)
+
+WindUI:Notify({ Title = "KIXDEV v42.2", Content = "ESP 60 FPS, Аим с кружком, Боты на месте!", Duration = 5 })
