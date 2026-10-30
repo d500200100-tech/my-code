@@ -1,0 +1,324 @@
+-- ============================================================
+-- NEXUS HUB | FUST SURVIVAL (v3.8 | ACCURATE BOXES + SPEED 30)
+-- ============================================================
+
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+
+local COLOR_MAIN = Color3.fromRGB(230, 230, 230)
+local COLOR_LOOT = Color3.fromRGB(255, 215, 0)
+
+local Config = {
+    Aim = false, AimRadius = 120, AimDistance = 500,
+    EspBoxes = false, EspNames = false, EspDist = false, EspHP = false, EspTracers = false,
+    EspDistance = 1500,
+    LootEsp = false, LootDistance = 500,
+    XRay = false,
+    SpeedEnabled = false, SpeedValue = 30, -- ВЕРНУЛ 30
+    AlwaysDay = false
+}
+
+local menuHidden = false
+local AimCircle = Drawing.new("Circle")
+AimCircle.Color = COLOR_MAIN; AimCircle.Thickness = 1.5
+AimCircle.Filled = false; AimCircle.Visible = false
+
+local CurrentTarget = nil
+
+local function GetHealthData(char)
+    if not char then return 100, 100 end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then return hum.Health, hum.MaxHealth end
+    return 100, 100
+end
+
+local function GetClosestTarget(maxFOV, maxDist)
+    local myH = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myH then return nil end
+    
+    if CurrentTarget and CurrentTarget.Parent then
+        local char = CurrentTarget.Parent
+        local hp = GetHealthData(char)
+        if hp > 0 and (CurrentTarget.Position - myH.Position).Magnitude <= maxDist then
+            return CurrentTarget
+        end
+    end
+
+    local best, bd = nil, math.huge
+    local c = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local myPos = myH.Position
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local char = p.Character
+            local h = char:FindFirstChild("HumanoidRootPart")
+            local head = char:FindFirstChild("Head")
+            if h and head then
+                local d = (h.Position - myPos).Magnitude
+                if d <= maxDist then
+                    local pos, onS = Camera:WorldToViewportPoint(head.Position)
+                    if onS then
+                        local mag = (Vector2.new(pos.X, pos.Y) - c).Magnitude
+                        if mag <= maxFOV and mag < bd then
+                            local hp = GetHealthData(char)
+                            if hp > 0 then bd = mag; best = head end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- Поиск лута
+local LootItems = {}
+local function RefreshLoot()
+    local l = {}
+    local names = {"crate", "box", "loot", "bag", "stash", "wood", "stone", "ore", "metal", "руда", "камень", "металл", "дерево", "ящик", "сумка"}
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") or obj:IsA("BasePart") then
+            local lowerName = obj.Name:lower()
+            local isLoot = false
+            for _, n in ipairs(names) do
+                if string.find(lowerName, n) then isLoot = true break end
+            end
+            if isLoot then table.insert(l, obj) end
+        end
+    end
+    LootItems = l
+end
+task.spawn(function() RefreshLoot(); while task.wait(5) do RefreshLoot() end end)
+
+-- X-RAY
+local XRayParts = {}
+local function ToggleXRay(state)
+    if state then
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and (obj.Name:lower():find("wall") or obj.Name:lower():find("foundation") or obj.Name:lower():find("door")) then
+                if obj.Transparency < 0.5 then
+                    table.insert(XRayParts, {part = obj, orig = obj.Transparency})
+                    obj.Transparency = 0.5
+                end
+            end
+        end
+    else
+        for _, data in ipairs(XRayParts) do
+            if data.part and data.part.Parent then data.part.Transparency = data.orig end
+        end
+        XRayParts = {}
+    end
+end
+
+-- МЕНЮ
+local Window = WindUI:CreateWindow({
+    Title = "NEXUS | FUST SURVIVAL",
+    Author = "v3.8 ACCURATE",
+    Folder = "NexusFust",
+    Theme = "Dark",
+    Size = UDim2.fromOffset(420, 400),
+})
+Window:SetToggleKey(Enum.KeyCode.RightShift)
+
+local CombatTab = Window:Tab({ Title = "Combat", Icon = "crosshair" })
+local VisualsTab = Window:Tab({ Title = "Visuals", Icon = "eye" })
+local MiscTab = Window:Tab({ Title = "Misc", Icon = "settings" })
+
+-- COMBAT
+CombatTab:Toggle({ Title = "Аимбот", Value = false, Callback = function(s) Config.Aim = s; AimCircle.Visible = s end })
+CombatTab:Slider({ Title = "Радиус Аима", Value = { Min = 10, Max = 500, Default = 120 }, Callback = function(v) Config.AimRadius = v end })
+CombatTab:Slider({ Title = "Дальность (До 500)", Value = { Min = 50, Max = 500, Default = 500 }, Callback = function(v) Config.AimDistance = v end })
+
+-- VISUALS
+VisualsTab:Slider({ Title = "Дистанция Игроков", Value = { Min = 100, Max = 2000, Default = 1500 }, Callback = function(v) Config.EspDistance = v end })
+VisualsTab:Toggle({ Title = "ESP Боксы", Value = false, Callback = function(s) Config.EspBoxes = s end })
+VisualsTab:Toggle({ Title = "ESP Ники", Value = false, Callback = function(s) Config.EspNames = s end })
+VisualsTab:Toggle({ Title = "ESP Дистанция", Value = false, Callback = function(s) Config.EspDist = s end })
+VisualsTab:Toggle({ Title = "ESP HP", Value = false, Callback = function(s) Config.EspHP = s end })
+VisualsTab:Toggle({ Title = "ESP Трейсеры", Value = false, Callback = function(s) Config.EspTracers = s end })
+VisualsTab:Toggle({ Title = "ESP Лут", Value = false, Callback = function(s) Config.LootEsp = s end })
+VisualsTab:Toggle({ Title = "X-Ray", Value = false, Callback = function(s) Config.XRay = s; ToggleXRay(s) end })
+
+-- MISC
+MiscTab:Toggle({ Title = "Спидхак", Value = false, Callback = function(s) Config.SpeedEnabled = s end })
+MiscTab:Slider({ Title = "Скорость", Value = { Min = 16, Max = 30, Default = 30 }, Callback = function(v) Config.SpeedValue = v end }) -- ВЕРНУЛ 30
+MiscTab:Toggle({ Title = "Вечный День", Value = false, Callback = function(s) Config.AlwaysDay = s end })
+
+-- СКРЫТИЕ МЕНЮ
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        menuHidden = not menuHidden
+        local windGui = game.CoreGui:FindFirstChild("WindUI")
+        if windGui then windGui.Enabled = not menuHidden end
+        AimCircle.Visible = (not menuHidden) and Config.Aim
+    end
+end)
+
+-- ЛОГИКА
+RunService.RenderStepped:Connect(function()
+    if menuHidden then return end
+    
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        if Config.SpeedEnabled then hum.WalkSpeed = math.clamp(Config.SpeedValue, 16, 30) else hum.WalkSpeed = 16 end
+    end
+
+    if Config.AlwaysDay then
+        pcall(function()
+            Lighting.ClockTime = 14; Lighting.Brightness = 3; Lighting.GlobalShadows = false
+            Lighting.FogStart = 0; Lighting.FogEnd = 1000000
+        end)
+    end
+
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    if AimCircle.Visible then
+        AimCircle.Position = screenCenter
+        AimCircle.Radius = Config.AimRadius
+    end
+    
+    if Config.Aim then
+        local t = GetClosestTarget(Config.AimRadius, Config.AimDistance)
+        if t then 
+            CurrentTarget = t
+            pcall(function() Camera.CFrame = CFrame.new(Camera.CFrame.Position, t.Position) end) 
+        else
+            CurrentTarget = nil
+        end
+    end
+end)
+
+-- ESP (Точный размер по модели игрока)
+local PlayerESP = {}
+local LootESP = {}
+
+RunService.RenderStepped:Connect(function()
+    if menuHidden then return end
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return end
+    local myPos = myHrp.Position
+    local screenBottom = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+
+    -- ИГРОКИ
+    for player, _ in pairs(PlayerESP) do
+        if not player.Parent or not player.Character then
+            for _, l in pairs(PlayerESP[player].box) do l:Remove() end
+            PlayerESP[player].text:Remove(); PlayerESP[player].hpBg:Remove(); PlayerESP[player].hpBar:Remove(); PlayerESP[player].tracer:Remove()
+            PlayerESP[player] = nil
+        end
+    end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and not PlayerESP[p] then
+            local d = { box = {}, text = Drawing.new("Text"), hpBg = Drawing.new("Line"), hpBar = Drawing.new("Line"), tracer = Drawing.new("Line") }
+            for i=1,4 do local l = Drawing.new("Line"); l.Thickness = 1.5; table.insert(d.box, l) end
+            d.text.Size = 13; d.text.Center = true; d.text.Outline = true
+            d.hpBg.Thickness = 2; d.hpBg.Color = Color3.fromRGB(0,0,0)
+            d.hpBar.Thickness = 2; d.tracer.Thickness = 1.5
+            PlayerESP[p] = d
+        end
+    end
+    
+    for p, d in pairs(PlayerESP) do
+        local isR = false
+        if p.Character then
+            local char = p.Character
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local head = char:FindFirstChild("Head")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            
+            if hrp and head and hum and hum.Health > 0 then
+                local dist = (hrp.Position - myPos).Magnitude
+                if dist <= Config.EspDistance then 
+                    
+                    -- ТОЧНЫЙ РАЗМЕР ПО МОДЕЛИ (от головы до ног)
+                    local headPos = head.Position + Vector3.new(0, head.Size.Y / 2, 0)
+                    local legPos = hrp.Position - Vector3.new(0, 2.5, 0) -- Примерная позиция ног
+                    
+                    local headScreen, on1 = Camera:WorldToViewportPoint(headPos)
+                    local legScreen, on2 = Camera:WorldToViewportPoint(legPos)
+                    
+                    if on1 and on2 then
+                        local boxHeight = math.abs(headScreen.Y - legScreen.Y)
+                        local boxWidth = boxHeight * 0.55
+                        local x = headScreen.X - (boxWidth / 2)
+                        local y = headScreen.Y
+                        
+                        if Config.EspBoxes then
+                            d.box[1].From = Vector2.new(x, y); d.box[1].To = Vector2.new(x+boxWidth, y); d.box[1].Visible = true
+                            d.box[2].From = Vector2.new(x+boxWidth, y); d.box[2].To = Vector2.new(x+boxWidth, y+boxHeight); d.box[2].Visible = true
+                            d.box[3].From = Vector2.new(x+boxWidth, y+boxHeight); d.box[3].To = Vector2.new(x, y+boxHeight); d.box[3].Visible = true
+                            d.box[4].From = Vector2.new(x, y+boxHeight); d.box[4].To = Vector2.new(x, y); d.box[4].Visible = true
+                        else for _, l in pairs(d.box) do l.Visible = false end end
+                        
+                        d.text.Visible = (Config.EspNames or Config.EspDist)
+                        if d.text.Visible then
+                            local name = Config.EspNames and p.Name or ""
+                            local distTxt = Config.EspDist and (" [" .. math.floor(dist) .. "m]") or ""
+                            d.text.Text = name .. distTxt; d.text.Position = Vector2.new(headScreen.X, y - 16)
+                        end
+                        
+                        if Config.EspHP then
+                            local hpPct = hum.Health / hum.MaxHealth
+                            d.hpBg.From = Vector2.new(x - 4, y); d.hpBg.To = Vector2.new(x - 4, y + boxHeight); d.hpBg.Visible = true
+                            d.hpBar.From = Vector2.new(x - 4, y + boxHeight - (boxHeight * hpPct)); d.hpBar.To = Vector2.new(x - 4, y + boxHeight)
+                            d.hpBar.Color = Color3.fromHSV(hpPct * 0.3, 1, 1); d.hpBar.Visible = true
+                        else d.hpBg.Visible = false; d.hpBar.Visible = false end
+
+                        if Config.EspTracers then
+                            d.tracer.From = screenBottom
+                            d.tracer.To = Vector2.new(headScreen.X, y + boxHeight)
+                            d.tracer.Color = COLOR_MAIN; d.tracer.Visible = true
+                        else d.tracer.Visible = false end
+                        isR = true
+                    end
+                end
+            end
+        end
+        if not isR then 
+            for _, l in pairs(d.box) do l.Visible = false end
+            d.text.Visible = false; d.hpBg.Visible = false; d.hpBar.Visible = false; d.tracer.Visible = false
+        end
+    end
+
+    -- ЛУТ
+    for obj, _ in pairs(LootESP) do
+        if not obj or not obj.Parent then
+            LootESP[obj].text:Remove()
+            LootESP[obj] = nil
+        end
+    end
+    if Config.LootEsp then
+        for _, obj in ipairs(LootItems) do
+            if obj and obj.Parent and not LootESP[obj] then
+                local t = Drawing.new("Text")
+                t.Size = 14; t.Center = true; t.Outline = true; t.Color = COLOR_LOOT
+                LootESP[obj] = { text = t }
+            end
+        end
+    end
+    
+    for obj, d in pairs(LootESP) do
+        local isR = false
+        if Config.LootEsp and obj and obj.Parent then
+            local pos = obj:GetPivot().Position
+            local dist = (pos - myPos).Magnitude
+            if dist <= Config.LootDistance then
+                local sp, onS = Camera:WorldToViewportPoint(pos)
+                if onS then
+                    d.text.Text = obj.Name .. " [" .. math.floor(dist) .. "m]"
+                    d.text.Position = Vector2.new(sp.X, sp.Y)
+                    d.text.Visible = true
+                    isR = true
+                end
+            end
+        end
+        if not isR then d.text.Visible = false end
+    end
+end)
+
+WindUI:Notify({ Title = "FUST v3.8", Content = "Боксы точно по игроку! Спидхак 30.", Duration = 5 })
