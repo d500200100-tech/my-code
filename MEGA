@@ -1,0 +1,48 @@
+-- ============================================================
+-- NEXUS HUB | MEGA LOADER (v2.1 | DEFAULT COLOR)
+-- ============================================================
+
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+
+local Window = WindUI:CreateWindow({
+    Title = "NEXUS HUB | MEGA LOADER",
+    Author = "Выбери игру",
+    Folder = "NexusMain",
+    Theme = "Dark", -- ВЕРНУЛ СТАНДАРТНУЮ ТЕМУ
+    Size = UDim2.fromOffset(350, 400),
+})
+
+Window:SetToggleKey(Enum.KeyCode.RightShift)
+
+-- ФУНКЦИЯ ЗАГРУЗКИ
+local function LoadScript(url, name)
+    WindUI:Notify({ Title = "Загрузка", Content = "Загружаем " .. name .. "...", Duration = 2 })
+    local success, err = pcall(function()
+        loadstring(game:HttpGet(url))()
+    end)
+    if not success then
+        WindUI:Notify({ Title = "Ошибка", Content = "Не удалось загрузить скрипт.", Duration = 5 })
+    end
+end
+
+-- КНОПКИ
+local MainTab = Window:Tab({ Title = "Главная", Icon = "home" })
+
+MainTab:Button({ Title = "🔥 Распад (RUST)", Callback = function() 
+    LoadScript("https://raw.githubusercontent.com/d500200100-tech/my-code/refs/heads/main/PCB", "Распад")
+end })
+
+MainTab:Button({ Title = "⛏️ Fust Survival", Callback = function() 
+    LoadScript("https://raw.githubusercontent.com/d500200100-tech/my-code/refs/heads/main/FUST1", "Fust Survival")
+end })
+
+-- ССЫЛКА НА RUSTY1
+MainTab:Button({ Title = "🔫 Ржавый (Rusty)", Callback = function() 
+    LoadScript("https://raw.githubusercontent.com/d500200100-tech/my-code/refs/heads/main/RUSTY1", "Ржавый")
+end })
+
+MainTab:Button({ Title = "🎯 Project Delta", Callback = function() 
+    LoadScript("https://raw.githubusercontent.com/d500200100-tech/my-code/refs/heads/main/DELTA2.0", "Project Delta")
+end })
+
+WindUI:Notify({ Title = "NEXUS HUB", Content = "Выбери скрипт в меню!", Duration = 5 })
