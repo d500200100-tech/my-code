@@ -1,0 +1,209 @@
+-- ============================================================
+-- NEXUS HUB | PROJECT DELTA (v2.0 | NO GRASS + ESP + AIM)
+-- ============================================================
+
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+
+local COLOR_MAIN = Color3.fromRGB(230, 230, 230)
+
+local Config = {
+    Aim = false, AimRadius = 150, AimDist = 500,
+    EspBoxes = false, EspNames = false, EspDist = false, EspHP = false,
+    EspDistance = 1500,
+    NoGrass = true -- По умолчанию включено
+}
+
+-- КРУЖОК АИМА
+local AimCircle = Drawing.new("Circle")
+AimCircle.Color = COLOR_MAIN
+AimCircle.Thickness = 1.5
+AimCircle.Filled = false
+AimCircle.Visible = false
+
+-- === УДАЛЕНИЕ ТРАВЫ ===
+local function RemoveGrass()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        pcall(function()
+            if obj:IsA("BasePart") and obj.Material == Enum.Material.Grass then
+                obj.Material = Enum.Material.Plastic -- Меняем на пластик (не грузит)
+            end
+            if obj:IsA("Decal") or obj:IsA("Texture") then
+                if obj.Name:lower():find("grass") then
+                    obj.Transparency = 1
+                end
+            end
+        end)
+    end
+end
+
+-- Запускаем удаление травы при старте
+if Config.NoGrass then
+    task.spawn(function()
+        RemoveGrass()
+        -- И повторяем на всякий случай через пару секунд, если карта прогрузилась позже
+        task.wait(5)
+        RemoveGrass()
+    end)
+end
+
+-- === АИМБОТ ===
+local function GetClosestTarget()
+    local myH = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myH then return nil end
+    
+    local best, bd = nil, math.huge
+    local c = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local myPos = myH.Position
+    
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local char = p.Character
+            local head = char:FindFirstChild("Head")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if head and hum and hum.Health > 0 then
+                local d = (head.Position - myPos).Magnitude
+                if d <= Config.AimDist then
+                    local pos, onS = Camera:WorldToViewportPoint(head.Position)
+                    if onS then
+                        local mag = (Vector2.new(pos.X, pos.Y) - c).Magnitude
+                        if mag <= Config.AimRadius and mag < bd then
+                            bd = mag; best = head
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- === МЕНЮ ===
+local Window = WindUI:CreateWindow({
+    Title = "NEXUS | DELTA 2.0",
+    Author = "v2.0 | No Grass",
+    Folder = "NexusDelta",
+    Theme = "Dark",
+    Size = UDim2.fromOffset(440, 400),
+})
+Window:SetToggleKey(Enum.KeyCode.RightShift)
+
+local CombatTab = Window:Tab({ Title = "Combat", Icon = "crosshair" })
+local VisualsTab = Window:Tab({ Title = "Visuals", Icon = "eye" })
+local MiscTab = Window:Tab({ Title = "Misc", Icon = "settings" })
+
+-- COMBAT
+CombatTab:Toggle({ Title = "Аимбот (Наводка)", Value = false, Callback = function(s) Config.Aim = s; AimCircle.Visible = s end })
+CombatTab:Slider({ Title = "Радиус Аима", Value = { Min = 10, Max = 500, Default = 150 }, Callback = function(v) Config.AimRadius = v end })
+CombatTab:Slider({ Title = "Дальность", Value = { Min = 50, Max = 1000, Default = 500 }, Callback = function(v) Config.AimDist = v end })
+
+-- VISUALS
+VisualsTab:Toggle({ Title = "Player ESP (Боксы, Ники, HP)", Value = false, Callback = function(s) Config.EspBoxes = s; Config.EspNames = s; Config.EspDist = s; Config.EspHP = s end })
+
+-- MISC
+MiscTab:Toggle({ Title = "Убрать траву (FPS Boost)", Value = true, Callback = function(s) 
+    Config.NoGrass = s
+    if s then RemoveGrass() end 
+end })
+
+-- === ЛОГИКА ===
+RunService.RenderStepped:Connect(function()
+    if AimCircle.Visible then
+        local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        AimCircle.Position = screenCenter
+        AimCircle.Radius = Config.AimRadius
+    end
+
+    if Config.Aim then
+        local target = GetClosestTarget()
+        if target then
+            pcall(function() Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Position) end)
+        end
+    end
+end)
+
+-- === ESP ОТРИСОВКА ===
+local PlayerESP = {}
+
+task.spawn(function()
+    while task.wait(0.1) do
+        local success, err = pcall(function()
+            local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if not myHrp then return end
+            local myPos = myHrp.Position
+            
+            for player, _ in pairs(PlayerESP) do
+                if not player.Parent or not player.Character then
+                    for _, l in pairs(PlayerESP[player].box) do l:Remove() end
+                    PlayerESP[player].text:Remove(); PlayerESP[player].hpBg:Remove(); PlayerESP[player].hpBar:Remove()
+                    PlayerESP[player] = nil
+                end
+            end
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer and p.Character and not PlayerESP[p] then
+                    local d = { box = {}, text = Drawing.new("Text"), hpBg = Drawing.new("Line"), hpBar = Drawing.new("Line") }
+                    for i=1,4 do local l = Drawing.new("Line"); l.Thickness = 1; table.insert(d.box, l) end
+                    d.text.Size = 13; d.text.Center = true; d.text.Outline = true
+                    d.hpBg.Thickness = 2; d.hpBg.Color = Color3.fromRGB(0,0,0)
+                    d.hpBar.Thickness = 2
+                    PlayerESP[p] = d
+                end
+            end
+            for p, d in pairs(PlayerESP) do
+                local isR = false
+                if p.Character then
+                    local char = p.Character
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    
+                    if hrp and hum and hum.Health > 0 then
+                        local dist = (hrp.Position - myPos).Magnitude
+                        if dist <= Config.EspDistance then 
+                            local pos, onS = Camera:WorldToViewportPoint(hrp.Position)
+                            if onS then
+                                local boxHeight = 100 / dist
+                                local boxWidth = boxHeight * 0.6
+                                local x = pos.X - (boxWidth / 2)
+                                local y = pos.Y - (boxHeight / 2)
+                                
+                                if Config.EspBoxes then
+                                    d.box[1].From = Vector2.new(x, y); d.box[1].To = Vector2.new(x+boxWidth, y); d.box[1].Visible = true
+                                    d.box[2].From = Vector2.new(x+boxWidth, y); d.box[2].To = Vector2.new(x+boxWidth, y+boxHeight); d.box[2].Visible = true
+                                    d.box[3].From = Vector2.new(x+boxWidth, y+boxHeight); d.box[3].To = Vector2.new(x, y+boxHeight); d.box[3].Visible = true
+                                    d.box[4].From = Vector2.new(x, y+boxHeight); d.box[4].To = Vector2.new(x, y); d.box[4].Visible = true
+                                else for _, l in pairs(d.box) do l.Visible = false end end
+                                
+                                d.text.Visible = (Config.EspNames or Config.EspDist)
+                                if d.text.Visible then
+                                    local name = Config.EspNames and p.Name or ""
+                                    local distTxt = Config.EspDist and (" [" .. math.floor(dist) .. "m]") or ""
+                                    d.text.Text = name .. distTxt; d.text.Position = Vector2.new(pos.X, y - 16)
+                                end
+                                
+                                if Config.EspHP then
+                                    local hpPct = hum.Health / hum.MaxHealth
+                                    d.hpBg.From = Vector2.new(x - 4, y); d.hpBg.To = Vector2.new(x - 4, y + boxHeight); d.hpBg.Visible = true
+                                    d.hpBar.From = Vector2.new(x - 4, y + boxHeight - (boxHeight * hpPct)); d.hpBar.To = Vector2.new(x - 4, y + boxHeight)
+                                    d.hpBar.Color = Color3.fromHSV(hpPct * 0.3, 1, 1); d.hpBar.Visible = true
+                                else
+                                    d.hpBg.Visible = false; d.hpBar.Visible = false
+                                end
+                                isR = true
+                            end
+                        end
+                    end
+                end
+                if not isR then 
+                    for _, l in pairs(d.box) do l.Visible = false end
+                    d.text.Visible = false; d.hpBg.Visible = false; d.hpBar.Visible = false
+                end
+            end
+        end)
+    end
+end)
+
+WindUI:Notify({ Title = "DELTA 2.0", Content = "Трава убрана! Скрипт запущен.", Duration = 5 })
